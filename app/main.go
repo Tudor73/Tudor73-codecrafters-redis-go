@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
+	"strings"
 )
 
 var _ = net.Listen
@@ -25,7 +27,20 @@ func main() {
 			os.Exit(1)
 		}
 
-		defer conn.Close()
-		conn.Write([]byte("+PONG\r\n"))
+		go handleConnection(conn)
 	}
+}
+
+func handleConnection(conn net.Conn) {
+
+	defer conn.Close()
+
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		text := scanner.Text()
+		if strings.TrimSpace(text) == "PING" {
+			conn.Write([]byte("+PONG\r\n"))
+		}
+	}
+
 }
