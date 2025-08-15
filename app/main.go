@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
-	"strings"
+
+	"github.com/codecrafters-io/redis-starter-go/app/parser"
 )
 
 var _ = net.Listen
@@ -24,7 +26,7 @@ func main() {
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
+			continue
 		}
 
 		go handleConnection(conn)
@@ -32,15 +34,24 @@ func main() {
 }
 
 func handleConnection(conn net.Conn) {
-
 	defer conn.Close()
 
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		text := scanner.Text()
-		if strings.TrimSpace(text) == "PING" {
-			conn.Write([]byte("+PONG\r\n"))
+	fmt.Println("Handling Connection", conn.RemoteAddr())
+	reader := bufio.NewReader(conn)
+	parser := parser.NewParser(reader)
+	for {
+		err := parser.Parse()
+		if err != nil {
+			if err == io.EOF {
+				fmt.Println("Client closed the connection:", conn.RemoteAddr())
+				return
+			}
+			fmt.Println("Error reading from connection: ", err.Error())
+			conn.Write([]byte("-Error invalid command: '" + "'\r\n"))
+			continue
 		}
+		output := fmt.Sprintf("+%s\r\n", parser.CurrentCommand.Argument)
+		conn.Write([]byte(output))
 	}
 
 }
