@@ -50,8 +50,27 @@ func handleConnection(conn net.Conn) {
 			conn.Write([]byte("-Error invalid command: '" + "'\r\n"))
 			continue
 		}
-		output := fmt.Sprintf("+%s\r\n", parser.CurrentCommand.Argument)
+		output, err := RunCommand(parser.CurrentCommand)
+		if err != nil {
+			conn.Write([]byte("-Error running command: '" + "'\r\n"))
+		}
 		conn.Write([]byte(output))
 	}
 
+}
+
+func RunCommand(command *parser.Command) (string, error) {
+
+	var output interface{}
+	switch command.CommandName {
+	case "PING":
+		output = "PONG"
+	case "ECHO":
+		output = command.Argument
+	}
+	return serializeOutput(output), nil
+}
+
+func serializeOutput(output interface{}) string {
+	return fmt.Sprintf("+%s\r\n", output)
 }

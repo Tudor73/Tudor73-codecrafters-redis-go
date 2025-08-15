@@ -24,6 +24,7 @@ type Parser struct {
 
 var SupportedCommands = map[string]bool{
 	"ECHO": true,
+	"PING": true,
 }
 
 type Command struct {
@@ -98,6 +99,11 @@ func (p *Parser) Parse() error {
 					return fmt.Errorf("-Unsupported Command")
 				}
 				currentCommand.CommandName = uppercaseLine
+				if currentCommand.CurrentSize == currentCommand.ExpectedSize {
+					currentCommand.Completed = true
+					p.CurrentCommand = &currentCommand
+					return nil
+				}
 			}
 
 			if currentCommand.ExpectedType == "string" {
