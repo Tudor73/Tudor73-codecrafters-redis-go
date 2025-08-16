@@ -25,26 +25,18 @@ type Parser struct {
 var SupportedCommands = map[string]bool{
 	"ECHO": true,
 	"PING": true,
+	"SET":  true,
+	"GET":  true,
 }
 
 type Command struct {
 	Data         []string
 	CommandName  string
-	Argument     interface{}
+	Arguments    []interface{}
 	ExpectedSize int
 	ExpectedType string
 	CurrentSize  int
 	Completed    bool
-}
-
-type ProtocolTypeHandler func(*Parser) error
-
-var typeIndentifiers = map[string]ProtocolTypeHandler{
-	"+": HandleString,
-	"-": HandleError,
-	":": HandleInteger,
-	"$": HandleBulkStrings,
-	"*": HandleArrays,
 }
 
 func NewParser(buffer *bufio.Reader) *Parser {
@@ -76,6 +68,7 @@ func (p *Parser) Parse() error {
 				Data:         make([]string, 0, size),
 				ExpectedSize: size,
 				CurrentSize:  0,
+				Arguments:    make([]interface{}, 0, size-1),
 				Completed:    false,
 			}
 		case '$':
@@ -107,7 +100,7 @@ func (p *Parser) Parse() error {
 			}
 
 			if currentCommand.ExpectedType == "string" {
-				currentCommand.Argument = strings.Trim(line, "\r\n")
+				currentCommand.Arguments = append(currentCommand.Arguments, strings.Trim(line, "\r\n"))
 				if currentCommand.CurrentSize == currentCommand.ExpectedSize {
 					currentCommand.Completed = true
 					p.CurrentCommand = &currentCommand
@@ -118,46 +111,4 @@ func (p *Parser) Parse() error {
 		}
 	}
 
-}
-
-func HandleString(p *Parser) error {
-	return nil
-}
-
-func HandleError(p *Parser) error {
-
-	return nil
-}
-
-func HandleInteger(p *Parser) error {
-
-	return nil
-}
-func HandleBulkStrings(p *Parser) error {
-	return nil
-}
-
-func HandleArrays(p *Parser) error {
-	return nil
-}
-
-func (p *Parser) isAtEnd() bool {
-	return false
-}
-
-func (p *Parser) peek() string {
-
-	if p.isAtEnd() {
-		return ""
-	}
-	return ""
-}
-
-func (p *Parser) advance() string {
-
-	return ""
-}
-
-func (p *Parser) AddToken(dataType string, value interface{}) {
-	p.Tokens = append(p.Tokens, Token{DataType: dataType, Value: value})
 }
