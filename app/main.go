@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
@@ -18,6 +19,13 @@ type Db struct {
 	dbMap map[interface{}]interface{}
 
 	mu *sync.Mutex
+}
+
+var SupportedCommands = map[string]bool{
+	"ECHO": true,
+	"PING": true,
+	"SET":  true,
+	"GET":  true,
 }
 
 func NewDb() *Db {
@@ -56,7 +64,7 @@ func handleConnection(conn net.Conn, db *Db) {
 	reader := bufio.NewReader(conn)
 	parser := parser.NewParser(reader)
 	for {
-		err := parser.Parse()
+		value, err := parser.Parse()
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("Client closed the connection:", conn.RemoteAddr())
@@ -66,37 +74,66 @@ func handleConnection(conn net.Conn, db *Db) {
 			conn.Write([]byte("-Error invalid command: '" + "'\r\n"))
 			continue
 		}
-		output, err := db.RunCommand(parser.CurrentCommand)
+
+		output, err := db.RunCommand(value)
 		if err != nil {
-			conn.Write([]byte("-Error running command: '" + "'\r\n"))
+			serializedError := serializeOutput(err, true)
+			conn.Write([]byte(serializedError))
 		}
-		conn.Write([]byte(output))
+		serializedOutput := serializeOutput(output, false)
+		conn.Write([]byte(serializedOutput))
 	}
 
 }
 
-func (db *Db) RunCommand(command *parser.Command) (string, error) {
+func (db *Db) RunCommand(command interface{}) (interface{}, error) {
+	arr, ok := command.([]interface{})
+	if !ok || len(arr) == 0 {
+		return nil, fmt.Errorf("command must be an array")
+	}
+
+	commandName, ok := arr[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("first element must be a string")
+	}
+	commandName = strings.ToUpper(commandName)
+	if _, supported := SupportedCommands[commandName]; !supported {
+		return nil, fmt.Errorf("unsupported command: %s", commandName)
+	}
 
 	var output interface{}
-	var ok bool
-	switch command.CommandName {
+	switch commandName {
 	case "PING":
 		output = "PONG"
 	case "ECHO":
-		output = command.Arguments[0]
+		argument, ok := arr[1].(string)
+		if !ok {
+			return nil, fmt.Errorf("argument for echo command must be a string")
+		}
+		output = argument
 	case "SET":
+		if len(arr) != 3 {
+			return nil, fmt.Errorf("invalid number of arguments for SET command %s", len(arr))
+		}
+		key := arr[1]
+		value := arr[2]
 		db.mu.Lock()
-		db.dbMap[command.Arguments[0]] = command.Arguments[1]
+		db.dbMap[key] = value
 		db.mu.Unlock()
 		output = "OK"
 	case "GET":
-		output, ok = db.dbMap[command.Arguments[0]]
-		if !ok {
-			output = "-Key does not exist"
-			return serializeOutput(output, true), nil
+		if len(arr) != 2 {
+			return nil, fmt.Errorf("invalid number of arguments for GET command %s", len(arr))
 		}
+		key := arr[1]
+		val, ok := db.dbMap[key]
+		if !ok {
+			output = -1
+			return output, nil
+		}
+		output = val
 	}
-	return serializeOutput(output, false), nil
+	return output, nil
 }
 
 func serializeOutput(output interface{}, isError bool) string {

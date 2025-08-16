@@ -2,41 +2,17 @@ package parser
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
+	"io"
 	"strconv"
 	"strings"
 )
 
-type Token struct {
-	Lexeme   string
-	DataType string
-	Value    interface{}
-}
-
 type Parser struct {
-	Source         *bufio.Reader
-	Start          int
-	Current        int
-	Err            error
-	Tokens         []Token
-	CurrentCommand *Command
-}
-
-var SupportedCommands = map[string]bool{
-	"ECHO": true,
-	"PING": true,
-	"SET":  true,
-	"GET":  true,
-}
-
-type Command struct {
-	Data         []string
-	CommandName  string
-	Arguments    []interface{}
-	ExpectedSize int
-	ExpectedType string
-	CurrentSize  int
-	Completed    bool
+	Source  *bufio.Reader
+	Start   int
+	Current int
+	Err     error
 }
 
 func NewParser(buffer *bufio.Reader) *Parser {
@@ -44,71 +20,86 @@ func NewParser(buffer *bufio.Reader) *Parser {
 		Source:  buffer,
 		Start:   0,
 		Current: 0,
-		Tokens:  make([]Token, 0),
 	}
 }
 
-func (p *Parser) Parse() error {
+var (
+	ErrInvalidSyntax      = errors.New("invalid syntax")
+	ErrUnsupportedType    = errors.New("unsupported RESP type")
+	ErrInvalidBulkStrSize = errors.New("invalid bulk string size")
+	ErrInvalidArraySize   = errors.New("invalid array size")
+)
 
-	var currentCommand Command = Command{}
-	for {
-		line, err := p.Source.ReadString('\n')
-		if err != nil {
-			return err
-		}
-		dataType := line[0]
+func (p *Parser) Parse() (interface{}, error) {
 
-		switch dataType {
-		case '*':
-			size, err := strconv.Atoi(string(line[1]))
-			if err != nil {
-				return err
-			}
-			currentCommand = Command{
-				Data:         make([]string, 0, size),
-				ExpectedSize: size,
-				CurrentSize:  0,
-				Arguments:    make([]interface{}, 0, size-1),
-				Completed:    false,
-			}
-		case '$':
-			if currentCommand.ExpectedSize == 0 {
-				return fmt.Errorf("-Command in bad format")
-			}
-			if currentCommand.CurrentSize == 0 {
-				currentCommand.ExpectedType = "command"
-			} else {
-				currentCommand.ExpectedType = "string"
-			}
-			currentCommand.CurrentSize++
-		default:
-			if currentCommand.ExpectedSize == 0 {
-				return fmt.Errorf("-Command in bad format")
-			}
-
-			if currentCommand.ExpectedType == "command" {
-				uppercaseLine := strings.ToUpper(strings.Trim(line, "\r\n"))
-				if _, ok := SupportedCommands[uppercaseLine]; !ok {
-					return fmt.Errorf("-Unsupported Command")
-				}
-				currentCommand.CommandName = uppercaseLine
-				if currentCommand.CurrentSize == currentCommand.ExpectedSize {
-					currentCommand.Completed = true
-					p.CurrentCommand = &currentCommand
-					return nil
-				}
-			}
-
-			if currentCommand.ExpectedType == "string" {
-				currentCommand.Arguments = append(currentCommand.Arguments, strings.Trim(line, "\r\n"))
-				if currentCommand.CurrentSize == currentCommand.ExpectedSize {
-					currentCommand.Completed = true
-					p.CurrentCommand = &currentCommand
-					return nil
-				}
-
-			}
-		}
+	dataType, err := p.Source.ReadByte()
+	if err != nil {
+		return nil, err
 	}
 
+	switch dataType {
+	case '*':
+		return p.ParseArray()
+	case '$':
+		return p.ParseBulkString()
+	default:
+		return nil, ErrInvalidSyntax
+	}
+}
+
+func (p *Parser) ParseInteger() (int, error) {
+	line, err := p.readLine()
+	if err != nil {
+		return 0, err
+	}
+	number, err := strconv.Atoi(line)
+	if err != nil {
+		return 0, err
+	}
+	return number, nil
+}
+
+func (p *Parser) readLine() (string, error) {
+	line, err := p.Source.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.Trim(line, "\r\n"), nil
+}
+
+func (p *Parser) ParseBulkString() (interface{}, error) {
+	length, err := p.ParseInteger()
+	if err != nil {
+		return nil, err
+	}
+
+	buf := make([]byte, length)
+	_, err = io.ReadFull(p.Source, buf)
+	if err != nil {
+		return nil, ErrInvalidBulkStrSize
+	}
+
+	// this reads the '\r\n' before going to the next byte is read
+	if _, err := p.readLine(); err != nil {
+		return nil, err
+	}
+	return string(buf), nil
+
+}
+
+func (p *Parser) ParseArray() (interface{}, error) {
+	length, err := p.ParseInteger()
+	if err != nil {
+		return nil, err
+	}
+
+	array := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		value, err := p.Parse()
+		if err != nil {
+			return nil, err
+		}
+		array[i] = value
+	}
+	return array, nil
 }
