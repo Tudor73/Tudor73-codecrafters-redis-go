@@ -30,7 +30,7 @@ var (
 	ErrInvalidArraySize   = errors.New("invalid array size")
 )
 
-func (p *Parser) Parse() (interface{}, error) {
+func (p *Parser) Parse() (any, error) {
 
 	dataType, err := p.Source.ReadByte()
 	if err != nil {
@@ -67,7 +67,7 @@ func (p *Parser) readLine() (string, error) {
 	return strings.Trim(line, "\r\n"), nil
 }
 
-func (p *Parser) ParseBulkString() (interface{}, error) {
+func (p *Parser) ParseBulkString() (any, error) {
 	length, err := p.ParseInteger()
 	if err != nil {
 		return nil, err
@@ -87,13 +87,13 @@ func (p *Parser) ParseBulkString() (interface{}, error) {
 
 }
 
-func (p *Parser) ParseArray() (interface{}, error) {
+func (p *Parser) ParseArray() (any, error) {
 	length, err := p.ParseInteger()
 	if err != nil {
 		return nil, err
 	}
 
-	array := make([]interface{}, length)
+	array := make([]any, length)
 	for i := 0; i < length; i++ {
 		value, err := p.Parse()
 		if err != nil {

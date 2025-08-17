@@ -6,8 +6,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
 )
@@ -15,8 +17,14 @@ import (
 var _ = net.Listen
 var _ = os.Exit
 
+type MapValue struct {
+	Value    any
+	SetAt    time.Time
+	ExpireAt time.Time
+}
+
 type Db struct {
-	dbMap map[interface{}]interface{}
+	dbMap map[any]MapValue
 
 	mu *sync.Mutex
 }
@@ -30,7 +38,7 @@ var SupportedCommands = map[string]bool{
 
 func NewDb() *Db {
 	return &Db{
-		dbMap: make(map[interface{}]interface{}),
+		dbMap: make(map[any]MapValue),
 		mu:    &sync.Mutex{},
 	}
 
@@ -86,8 +94,8 @@ func handleConnection(conn net.Conn, db *Db) {
 
 }
 
-func (db *Db) RunCommand(command interface{}) (interface{}, error) {
-	arr, ok := command.([]interface{})
+func (db *Db) RunCommand(command any) (any, error) {
+	arr, ok := command.([]any)
 	if !ok || len(arr) == 0 {
 		return nil, fmt.Errorf("command must be an array")
 	}
@@ -101,7 +109,8 @@ func (db *Db) RunCommand(command interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("unsupported command: %s", commandName)
 	}
 
-	var output interface{}
+	var output any
+	var err error
 	switch commandName {
 	case "PING":
 		output = "PONG"
@@ -112,22 +121,22 @@ func (db *Db) RunCommand(command interface{}) (interface{}, error) {
 		}
 		output = argument
 	case "SET":
-		if len(arr) != 3 {
-			return nil, fmt.Errorf("invalid number of arguments for SET command %s", len(arr))
+		output, err = db.RunSetCommand(arr)
+		if err != nil {
+			return nil, err
 		}
-		key := arr[1]
-		value := arr[2]
-		db.mu.Lock()
-		db.dbMap[key] = value
-		db.mu.Unlock()
-		output = "OK"
 	case "GET":
 		if len(arr) != 2 {
-			return nil, fmt.Errorf("invalid number of arguments for GET command %s", len(arr))
+			return nil, fmt.Errorf("invalid number of arguments for GET command %d", len(arr))
 		}
 		key := arr[1]
 		val, ok := db.dbMap[key]
 		if !ok {
+			output = -1
+			return output, nil
+		}
+		if time.Now().Compare(val.ExpireAt) == 1 {
+			fmt.Println("key expired")
 			output = -1
 			return output, nil
 		}
@@ -136,7 +145,42 @@ func (db *Db) RunCommand(command interface{}) (interface{}, error) {
 	return output, nil
 }
 
-func serializeOutput(output interface{}, isError bool) string {
+func (db *Db) RunSetCommand(command []any) (any, error) {
+	if len(command) < 3 {
+		return nil, fmt.Errorf("invalid number of arguments for SET command %d", len(command))
+	}
+
+	newValue := MapValue{
+		Value: command[2],
+	}
+	if len(command) == 5 {
+		flag, ok := command[3].(string)
+		if !ok {
+			return nil, fmt.Errorf("unsupported type for option %s", flag)
+		}
+		flag = strings.ToUpper(flag)
+		if flag != "PX" {
+			return nil, fmt.Errorf("unsupported option %s", flag)
+		}
+
+		durationAsString, _ := command[4].(string)
+
+		duration, err := strconv.Atoi(durationAsString)
+		if err != nil {
+			return nil, fmt.Errorf("invalid data type for option, expected number %s", flag)
+		}
+		newValue.SetAt = time.Now()
+		newValue.ExpireAt = time.Now().Add(time.Millisecond * time.Duration(duration))
+	}
+
+	db.mu.Lock()
+	db.dbMap[command[1]] = newValue
+	db.mu.Unlock()
+	return "OK", nil
+
+}
+
+func serializeOutput(output any, isError bool) string {
 	if isError {
 		return fmt.Sprintf("-%s\r\n", output)
 	}
