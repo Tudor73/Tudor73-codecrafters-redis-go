@@ -18,9 +18,10 @@ var _ = net.Listen
 var _ = os.Exit
 
 type MapValue struct {
-	Value    any
-	SetAt    time.Time
-	ExpireAt time.Time
+	Value         any
+	SetAt         time.Time
+	HasExpiryDate bool
+	ExpireAt      time.Time
 }
 
 type Db struct {
@@ -85,69 +86,70 @@ func handleConnection(conn net.Conn, db *Db) {
 
 		output, err := db.RunCommand(value)
 		if err != nil {
-			serializedError := serializeOutput(err, true)
+			serializedError := serializeOutput(err, true, false)
 			conn.Write([]byte(serializedError))
+			continue
 		}
-		serializedOutput := serializeOutput(output, false)
-		conn.Write([]byte(serializedOutput))
+		conn.Write([]byte(output))
 	}
 
 }
 
-func (db *Db) RunCommand(command any) (any, error) {
+func (db *Db) RunCommand(command any) (string, error) {
 	arr, ok := command.([]any)
 	if !ok || len(arr) == 0 {
-		return nil, fmt.Errorf("command must be an array")
+		return "", fmt.Errorf("command must be an array")
 	}
 
 	commandName, ok := arr[0].(string)
 	if !ok {
-		return nil, fmt.Errorf("first element must be a string")
+		return "", fmt.Errorf("first element must be a string")
 	}
 	commandName = strings.ToUpper(commandName)
 	if _, supported := SupportedCommands[commandName]; !supported {
-		return nil, fmt.Errorf("unsupported command: %s", commandName)
+		return "", fmt.Errorf("unsupported command: %s", commandName)
 	}
 
-	var output any
+	var output string
 	var err error
 	switch commandName {
 	case "PING":
-		output = "PONG"
+		output = serializeOutput("PONG", false, false)
 	case "ECHO":
 		argument, ok := arr[1].(string)
 		if !ok {
-			return nil, fmt.Errorf("argument for echo command must be a string")
+			return "", fmt.Errorf("argument for echo command must be a string")
 		}
-		output = argument
+		output = serializeOutput(argument, false, false)
 	case "SET":
 		output, err = db.RunSetCommand(arr)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
+		output = serializeOutput(output, false, false)
 	case "GET":
 		if len(arr) != 2 {
-			return nil, fmt.Errorf("invalid number of arguments for GET command %d", len(arr))
+			return "", fmt.Errorf("invalid number of arguments for GET command %d", len(arr))
 		}
 		key := arr[1]
 		val, ok := db.dbMap[key]
 		if !ok {
-			output = -1
+			output = serializeOutput(-1, false, false)
 			return output, nil
 		}
-		if time.Now().Compare(val.ExpireAt) == 1 {
+		if val.HasExpiryDate && time.Now().Compare(val.ExpireAt) == 1 {
 			fmt.Println("key expired")
-			output = -1
+			output = serializeOutput(-1, false, false)
 			return output, nil
 		}
-		output = val.Value
+		output = serializeOutput(val.Value, false, false)
 	}
 	return output, nil
 }
 
-func (db *Db) RunSetCommand(command []any) (any, error) {
+func (db *Db) RunSetCommand(command []any) (string, error) {
 	if len(command) < 3 {
-		return nil, fmt.Errorf("invalid number of arguments for SET command %d", len(command))
+		return "", fmt.Errorf("invalid number of arguments for SET command %d", len(command))
 	}
 
 	newValue := MapValue{
@@ -156,20 +158,21 @@ func (db *Db) RunSetCommand(command []any) (any, error) {
 	if len(command) == 5 {
 		flag, ok := command[3].(string)
 		if !ok {
-			return nil, fmt.Errorf("unsupported type for option %s", flag)
+			return "", fmt.Errorf("unsupported type for option %s", flag)
 		}
 		flag = strings.ToUpper(flag)
 		if flag != "PX" {
-			return nil, fmt.Errorf("unsupported option %s", flag)
+			return "", fmt.Errorf("unsupported option %s", flag)
 		}
 
 		durationAsString, _ := command[4].(string)
 
 		duration, err := strconv.Atoi(durationAsString)
 		if err != nil {
-			return nil, fmt.Errorf("invalid data type for option, expected number %s", flag)
+			return "", fmt.Errorf("invalid data type for option, expected number %s", flag)
 		}
 		newValue.SetAt = time.Now()
+		newValue.HasExpiryDate = true
 		newValue.ExpireAt = time.Now().Add(time.Millisecond * time.Duration(duration))
 	}
 
@@ -180,15 +183,21 @@ func (db *Db) RunSetCommand(command []any) (any, error) {
 
 }
 
-func serializeOutput(output any, isError bool) string {
+func serializeOutput(output any, isError bool, isBulkString bool) string {
 	if isError {
 		return fmt.Sprintf("-%s\r\n", output)
 	}
-	if output == -1 {
-		return fmt.Sprintf("$%d\r\n", -1)
+	outputAsInt, ok := output.(int)
+	if ok {
+		if outputAsInt == -1 {
+			return "$-1\r\n"
+		}
 	}
 
-	outputAsBytes := []byte(output.(string))
-	size := len(outputAsBytes)
-	return fmt.Sprintf("$%d\r\n%s\r\n", size, output)
+	if isBulkString {
+		outputAsBytes := []byte(output.(string))
+		size := len(outputAsBytes)
+		return fmt.Sprintf("$%d\r\n%s\r\n", size, output)
+	}
+	return fmt.Sprintf("+%s\r\n", output)
 }
