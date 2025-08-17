@@ -140,7 +140,7 @@ func (db *Db) RunCommand(command any) (any, error) {
 			output = -1
 			return output, nil
 		}
-		output = val
+		output = val.Value
 	}
 	return output, nil
 }
