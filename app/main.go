@@ -132,12 +132,12 @@ func (db *Db) RunCommand(command any) (any, error) {
 		key := arr[1]
 		val, ok := db.dbMap[key]
 		if !ok {
-			output = -1
+			output = "-1"
 			return output, nil
 		}
 		if time.Now().Compare(val.ExpireAt) == 1 {
 			fmt.Println("key expired")
-			output = -1
+			output = "-1"
 			return output, nil
 		}
 		output = val.Value
@@ -184,5 +184,8 @@ func serializeOutput(output any, isError bool) string {
 	if isError {
 		return fmt.Sprintf("-%s\r\n", output)
 	}
-	return fmt.Sprintf("+%s\r\n", output)
+
+	outputAsBytes := []byte(output.(string))
+	size := len(outputAsBytes)
+	return fmt.Sprintf("$%d\r\n%s\r\n", size, output)
 }
