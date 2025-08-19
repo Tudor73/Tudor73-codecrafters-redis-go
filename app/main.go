@@ -6,29 +6,15 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"strings"
-	"sync"
-	"time"
 
+	"github.com/codecrafters-io/redis-starter-go/app/command"
+	"github.com/codecrafters-io/redis-starter-go/app/db"
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
 )
 
 var _ = net.Listen
 var _ = os.Exit
-
-type MapValue struct {
-	Value         any
-	SetAt         time.Time
-	HasExpiryDate bool
-	ExpireAt      time.Time
-}
-
-type Db struct {
-	dbMap map[any]MapValue
-
-	mu *sync.Mutex
-}
 
 var SupportedCommands = map[string]bool{
 	"ECHO": true,
@@ -37,18 +23,10 @@ var SupportedCommands = map[string]bool{
 	"GET":  true,
 }
 
-func NewDb() *Db {
-	return &Db{
-		dbMap: make(map[any]MapValue),
-		mu:    &sync.Mutex{},
-	}
-
-}
-
 func main() {
 	fmt.Println("Logs from your program will appear here!")
 
-	db := NewDb()
+	db := db.NewDb()
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
@@ -66,12 +44,13 @@ func main() {
 	}
 }
 
-func handleConnection(conn net.Conn, db *Db) {
+func handleConnection(conn net.Conn, db *db.Db) {
 	defer conn.Close()
 
 	fmt.Println("Handling Connection", conn.RemoteAddr())
 	reader := bufio.NewReader(conn)
 	parser := parser.NewParser(reader)
+
 	for {
 		value, err := parser.Parse()
 		if err != nil {
@@ -84,114 +63,45 @@ func handleConnection(conn net.Conn, db *Db) {
 			continue
 		}
 
-		output, err := db.RunCommand(value)
+		output, err := RunCommand(value, db)
 		if err != nil {
 			serializedError := serializeOutput(err, true, false)
 			conn.Write([]byte(serializedError))
 			continue
 		}
-		conn.Write([]byte(output))
+		outputSerialized := serializeOutput(output, false, false)
+		conn.Write([]byte(outputSerialized))
 	}
 
 }
 
-func (db *Db) RunCommand(command any) (string, error) {
-	arr, ok := command.([]any)
-	if !ok || len(arr) == 0 {
-		return "", fmt.Errorf("command must be an array")
+func RunCommand(input any, db *db.Db) (string, error) {
+	arrAsAny, ok := input.([]any)
+	if !ok || len(arrAsAny) == 0 {
+		return "", fmt.Errorf("command must be an array of strings")
 	}
 
-	commandName, ok := arr[0].(string)
-	if !ok {
-		return "", fmt.Errorf("first element must be a string")
+	arr, err := AnyToString(arrAsAny)
+	if err != nil {
+		return "", err
 	}
+
+	commandName := arr[0]
 	commandName = strings.ToUpper(commandName)
-	if _, supported := SupportedCommands[commandName]; !supported {
-		return "", fmt.Errorf("unsupported command: %s", commandName)
+
+	command, err := command.CommandFactory(commandName, db)
+	if err != nil {
+		return "", err
 	}
-
-	var output string
-	var err error
-	switch commandName {
-	case "PING":
-		output = serializeOutput("PONG", false, false)
-	case "ECHO":
-		argument, ok := arr[1].(string)
-		if !ok {
-			return "", fmt.Errorf("argument for echo command must be a string")
-		}
-		output = serializeOutput(argument, false, false)
-	case "SET":
-		output, err = db.RunSetCommand(arr)
-		if err != nil {
-			return "", err
-		}
-		output = serializeOutput(output, false, false)
-	case "GET":
-		if len(arr) != 2 {
-			return "", fmt.Errorf("invalid number of arguments for GET command %d", len(arr))
-		}
-		key := arr[1]
-		val, ok := db.dbMap[key]
-		if !ok {
-			output = serializeOutput(-1, false, false)
-			return output, nil
-		}
-		if val.HasExpiryDate && time.Now().Compare(val.ExpireAt) == 1 {
-			fmt.Println("key expired")
-			output = serializeOutput(-1, false, false)
-			return output, nil
-		}
-		output = serializeOutput(val.Value, false, false)
-	}
-	return output, nil
-}
-
-func (db *Db) RunSetCommand(command []any) (string, error) {
-	if len(command) < 3 {
-		return "", fmt.Errorf("invalid number of arguments for SET command %d", len(command))
-	}
-
-	newValue := MapValue{
-		Value: command[2],
-	}
-	if len(command) == 5 {
-		flag, ok := command[3].(string)
-		if !ok {
-			return "", fmt.Errorf("unsupported type for option %s", flag)
-		}
-		flag = strings.ToUpper(flag)
-		if flag != "PX" {
-			return "", fmt.Errorf("unsupported option %s", flag)
-		}
-
-		durationAsString, _ := command[4].(string)
-
-		duration, err := strconv.Atoi(durationAsString)
-		if err != nil {
-			return "", fmt.Errorf("invalid data type for option, expected number %s", flag)
-		}
-		newValue.SetAt = time.Now()
-		newValue.HasExpiryDate = true
-		newValue.ExpireAt = time.Now().Add(time.Millisecond * time.Duration(duration))
-	}
-
-	db.mu.Lock()
-	db.dbMap[command[1]] = newValue
-	db.mu.Unlock()
-	return "OK", nil
+	return command.ExecuteCommand(arr)
 
 }
-
 func serializeOutput(output any, isError bool, isBulkString bool) string {
 	if isError {
 		return fmt.Sprintf("-%s\r\n", output)
 	}
-	outputAsInt, ok := output.(int)
-	if ok {
-		if outputAsInt == -1 {
-			return "$-1\r\n"
-		}
+	if output == "-1" {
+		return "$-1\r\n"
 	}
 
 	if isBulkString {
@@ -200,4 +110,16 @@ func serializeOutput(output any, isError bool, isBulkString bool) string {
 		return fmt.Sprintf("$%d\r\n%s\r\n", size, output)
 	}
 	return fmt.Sprintf("+%s\r\n", output)
+}
+
+func AnyToString(input []any) ([]string, error) {
+	var arrStr []string
+	for _, v := range input {
+		if str, ok := v.(string); ok {
+			arrStr = append(arrStr, str)
+		} else {
+			return nil, fmt.Errorf("expected string argument")
+		}
+	}
+	return arrStr, nil
 }

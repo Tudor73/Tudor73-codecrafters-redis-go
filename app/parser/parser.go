@@ -40,8 +40,7 @@ func (p *Parser) Parse() (any, error) {
 	switch dataType {
 	case '*':
 		return p.ParseArray()
-	case '$':
-		return p.ParseBulkString()
+	case '$': return p.ParseBulkString()
 	default:
 		return nil, ErrInvalidSyntax
 	}
