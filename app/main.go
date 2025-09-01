@@ -66,13 +66,13 @@ func handleConnection(conn net.Conn, db *db.Db) {
 
 		output, err := RunCommand(value, db)
 		if err != nil {
-			serializedError := serializeOutput(err, true, false)
+			serializedError := serializeOutput(err, true)
 			conn.Write(serializedError)
 			continue
 		}
-		outputSerialized := serializeOutput(output, false, false)
+		outputSerialized := serializeOutput(output, false)
 		if outputSerialized == nil {
-			serializedError := serializeOutput(fmt.Errorf("unsupported protocol type"), true, false)
+			serializedError := serializeOutput(fmt.Errorf("unsupported protocol type"), true)
 			conn.Write(serializedError)
 			continue
 		}
@@ -102,14 +102,13 @@ func RunCommand(input any, db *db.Db) (any, error) {
 	return command.ExecuteCommand(arr)
 
 }
-func serializeOutput(output any, isError bool, isBulkString bool) []byte {
+func serializeOutput(output any, isError bool) []byte {
+	if output == "PONG" {
+		return []byte(fmt.Sprintf("+%s\r\n", output))
+	}
+
 	if isError {
 		return []byte(fmt.Sprintf("-%s\r\n", output))
-	}
-	if isBulkString {
-		outputAsBytes := []byte(output.(string))
-		size := len(outputAsBytes)
-		return []byte(fmt.Sprintf("$%d\r\n%s\r\n", size, output))
 	}
 
 	switch v := output.(type) {
