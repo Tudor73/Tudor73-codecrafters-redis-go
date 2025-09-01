@@ -17,10 +17,11 @@ var _ = net.Listen
 var _ = os.Exit
 
 var SupportedCommands = map[string]bool{
-	"ECHO": true,
-	"PING": true,
-	"SET":  true,
-	"GET":  true,
+	"ECHO":  true,
+	"PING":  true,
+	"SET":   true,
+	"GET":   true,
+	"RPUSH": true,
 }
 
 func main() {
@@ -66,16 +67,21 @@ func handleConnection(conn net.Conn, db *db.Db) {
 		output, err := RunCommand(value, db)
 		if err != nil {
 			serializedError := serializeOutput(err, true, false)
-			conn.Write([]byte(serializedError))
+			conn.Write(serializedError)
 			continue
 		}
 		outputSerialized := serializeOutput(output, false, false)
-		conn.Write([]byte(outputSerialized))
+		if outputSerialized == nil {
+			serializedError := serializeOutput(fmt.Errorf("unsupported protocol type"), true, false)
+			conn.Write(serializedError)
+			continue
+		}
+		conn.Write(outputSerialized)
 	}
 
 }
 
-func RunCommand(input any, db *db.Db) (string, error) {
+func RunCommand(input any, db *db.Db) (any, error) {
 	arrAsAny, ok := input.([]any)
 	if !ok || len(arrAsAny) == 0 {
 		return "", fmt.Errorf("command must be an array of strings")
@@ -89,27 +95,37 @@ func RunCommand(input any, db *db.Db) (string, error) {
 	commandName := arr[0]
 	commandName = strings.ToUpper(commandName)
 
-	command, err := command.CommandFactory(commandName, db)
+	command, err := command.NewCommand(commandName, db)
 	if err != nil {
 		return "", err
 	}
 	return command.ExecuteCommand(arr)
 
 }
-func serializeOutput(output any, isError bool, isBulkString bool) string {
+func serializeOutput(output any, isError bool, isBulkString bool) []byte {
 	if isError {
-		return fmt.Sprintf("-%s\r\n", output)
+		return []byte(fmt.Sprintf("-%s\r\n", output))
 	}
-	if output == "-1" {
-		return "$-1\r\n"
-	}
-
 	if isBulkString {
 		outputAsBytes := []byte(output.(string))
 		size := len(outputAsBytes)
-		return fmt.Sprintf("$%d\r\n%s\r\n", size, output)
+		return []byte(fmt.Sprintf("$%d\r\n%s\r\n", size, output))
 	}
-	return fmt.Sprintf("+%s\r\n", output)
+
+	switch v := output.(type) {
+	case string:
+		return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(v), v))
+	case int, int64, int32:
+		return []byte(fmt.Sprintf(":%d\r\n", v))
+	case []string:
+		return []byte(fmt.Sprintf("*%d\r\n", len(v))) // Note: Real implementation needs to serialize each element.
+
+	case nil:
+		return []byte("$-1\r\n")
+
+	default:
+		return nil
+	}
 }
 
 func AnyToString(input []any) ([]string, error) {

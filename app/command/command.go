@@ -10,10 +10,10 @@ import (
 )
 
 type Command interface {
-	ExecuteCommand(args []string) (string, error)
+	ExecuteCommand(args []string) (any, error)
 }
 
-func CommandFactory(name string, db *db.Db) (Command, error) {
+func NewCommand(name string, db *db.Db) (Command, error) {
 	switch strings.ToUpper(name) {
 	case "PING":
 		return &PingCommand{}, nil
@@ -23,6 +23,8 @@ func CommandFactory(name string, db *db.Db) (Command, error) {
 		return &GetCommand{db: db}, nil
 	case "SET":
 		return &SetCommand{db: db}, nil
+	case "RPUSH":
+		return &RPUSHCommand{db: db}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
@@ -30,7 +32,7 @@ func CommandFactory(name string, db *db.Db) (Command, error) {
 
 type PingCommand struct{}
 
-func (c *PingCommand) ExecuteCommand(args []string) (string, error) {
+func (c *PingCommand) ExecuteCommand(args []string) (any, error) {
 	if len(args) != 1 {
 		return "", fmt.Errorf("wrong number of arguments for 'PING' command")
 	}
@@ -39,7 +41,7 @@ func (c *PingCommand) ExecuteCommand(args []string) (string, error) {
 
 type EchoCommand struct{}
 
-func (c *EchoCommand) ExecuteCommand(args []string) (string, error) {
+func (c *EchoCommand) ExecuteCommand(args []string) (any, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'ECHO' command")
 	}
@@ -50,7 +52,7 @@ type GetCommand struct {
 	db *db.Db
 }
 
-func (c *GetCommand) ExecuteCommand(args []string) (string, error) {
+func (c *GetCommand) ExecuteCommand(args []string) (any, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
 	}
@@ -68,17 +70,17 @@ func (c *GetCommand) ExecuteCommand(args []string) (string, error) {
 		c.db.Mu.Lock()
 		delete(c.db.DbMap, key)
 		c.db.Mu.Unlock()
-		return "-1", nil
+		return nil, nil
 	}
 
-	return val.Value.(string), nil
+	return val.Value, nil
 }
 
 type SetCommand struct {
 	db *db.Db
 }
 
-func (c *SetCommand) ExecuteCommand(args []string) (string, error) {
+func (c *SetCommand) ExecuteCommand(args []string) (any, error) {
 	if len(args) < 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'SET' command")
 	}
@@ -101,4 +103,38 @@ func (c *SetCommand) ExecuteCommand(args []string) (string, error) {
 	c.db.Mu.Unlock()
 
 	return "OK", nil
+}
+
+type RPUSHCommand struct {
+	db *db.Db
+}
+
+func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
+	if len(args) != 3 {
+		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
+	}
+	key := args[1]
+
+	c.db.Mu.Lock()
+	val, ok := c.db.DbMap[key]
+
+	if !ok {
+		c.db.DbMap[key] = db.MapValue{
+			Value: make([]string, 0),
+			SetAt: time.Now(),
+		}
+	}
+	val = c.db.DbMap[key]
+	val.Value = append(val.Value.([]string), args[2])
+
+	c.db.Mu.Unlock()
+	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
+		c.db.Mu.Lock()
+		delete(c.db.DbMap, key)
+		c.db.Mu.Unlock()
+		return "-1", nil
+	}
+
+	listSize := len(val.Value.([]string))
+	return listSize, nil
 }
