@@ -99,7 +99,7 @@ func (c *SetCommand) ExecuteCommand(args []string) (any, error) {
 	}
 
 	c.db.Mu.Lock()
-	c.db.DbMap[key] = dbVal
+	c.db.DbMap[key] = &dbVal
 	c.db.Mu.Unlock()
 
 	return "OK", nil
@@ -116,17 +116,18 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 	key := args[1]
 
 	c.db.Mu.Lock()
-	val, ok := c.db.DbMap[key]
+	_, ok := c.db.DbMap[key]
 
 	if !ok {
-		c.db.DbMap[key] = db.MapValue{
+		c.db.DbMap[key] = &db.MapValue{
 			Value: make([]string, 0),
 			SetAt: time.Now(),
 		}
 	}
-	val = c.db.DbMap[key]
+	val := c.db.DbMap[key]
 	val.Value = append(val.Value.([]string), args[2])
 
+	listSize := len(val.Value.([]string))
 	c.db.Mu.Unlock()
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		c.db.Mu.Lock()
@@ -135,6 +136,5 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 		return "-1", nil
 	}
 
-	listSize := len(val.Value.([]string))
 	return listSize, nil
 }

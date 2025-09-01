@@ -13,14 +13,14 @@ type MapValue struct {
 }
 
 type Db struct {
-	DbMap map[any]MapValue
+	DbMap map[any]*MapValue
 
 	Mu *sync.Mutex
 }
 
 func NewDb() *Db {
 	return &Db{
-		DbMap: make(map[any]MapValue),
+		DbMap: make(map[any]*MapValue),
 		Mu:    &sync.Mutex{},
 	}
 
