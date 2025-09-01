@@ -110,8 +110,8 @@ type RPUSHCommand struct {
 }
 
 func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
-	if len(args) != 3 {
-		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
+	if len(args) < 3 {
+		return "", fmt.Errorf("wrong number of arguments for 'RPUSH' command")
 	}
 	key := args[1]
 
@@ -125,7 +125,9 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 		}
 	}
 	val := c.db.DbMap[key]
-	val.Value = append(val.Value.([]string), args[2])
+	for i := 2; i < len(args); i++ {
+		val.Value = append(val.Value.([]string), args[i])
+	}
 
 	listSize := len(val.Value.([]string))
 	c.db.Mu.Unlock()
