@@ -25,6 +25,8 @@ func NewCommand(name string, db *db.Db) (Command, error) {
 		return &SetCommand{db: db}, nil
 	case "RPUSH":
 		return &RPUSHCommand{db: db}, nil
+	case "LRANGE":
+		return &LRANGECommand{db: db}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
@@ -59,21 +61,12 @@ func (c *GetCommand) ExecuteCommand(args []string) (any, error) {
 	key := args[1]
 
 	c.db.Mu.Lock()
-	val, ok := c.db.DbMap[key]
+	val, ok := c.db.GetValue(key)
 	c.db.Mu.Unlock()
-
 	if !ok {
-		return "-1", nil
-	}
-
-	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
-		c.db.Mu.Lock()
-		delete(c.db.DbMap, key)
-		c.db.Mu.Unlock()
 		return nil, nil
 	}
-
-	return val.Value, nil
+	return val, nil
 }
 
 type SetCommand struct {
@@ -115,6 +108,7 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 	}
 	key := args[1]
 
+	// TO DO - refactor this a bit to use the GetValue method
 	c.db.Mu.Lock()
 	_, ok := c.db.DbMap[key]
 
@@ -139,4 +133,47 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 	}
 
 	return listSize, nil
+}
+
+type LRANGECommand struct {
+	db *db.Db
+}
+
+func (c *LRANGECommand) ExecuteCommand(args []string) (any, error) {
+	if len(args) != 4 {
+		return "", fmt.Errorf("wrong number of arguments for 'LRANGE' command")
+	}
+	key := args[1]
+
+	c.db.Mu.Lock()
+	val, ok := c.db.GetValue(key)
+
+	if !ok {
+		return []string{}, nil
+	}
+
+	startIndex, err := strconv.Atoi(args[2])
+	if err != nil {
+		return "", fmt.Errorf("wrong value for argument,expected integer")
+	}
+	stopIndex, err := strconv.Atoi(args[3])
+	if err != nil {
+		return "", fmt.Errorf("wrong value for argument,expected integer")
+	}
+
+	valAsList, ok := val.([]string)
+	if !ok {
+		return "", fmt.Errorf("value not a list")
+	}
+	if startIndex >= len(valAsList) {
+		return []string{}, nil
+	}
+	if stopIndex >= len(valAsList) {
+		stopIndex = len(valAsList) - 1
+	}
+	if startIndex > stopIndex {
+		return []string{}, nil
+	}
+	c.db.Mu.Lock()
+	return valAsList[startIndex : stopIndex+1], nil
 }

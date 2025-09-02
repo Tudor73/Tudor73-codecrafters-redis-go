@@ -17,11 +17,12 @@ var _ = net.Listen
 var _ = os.Exit
 
 var SupportedCommands = map[string]bool{
-	"ECHO":  true,
-	"PING":  true,
-	"SET":   true,
-	"GET":   true,
-	"RPUSH": true,
+	"ECHO":   true,
+	"PING":   true,
+	"SET":    true,
+	"GET":    true,
+	"RPUSH":  true,
+	"LRANGE": true,
 }
 
 func main() {
@@ -117,7 +118,7 @@ func serializeOutput(output any, isError bool) []byte {
 	case int, int64, int32:
 		return []byte(fmt.Sprintf(":%d\r\n", v))
 	case []string:
-		return []byte(fmt.Sprintf("*%d\r\n", len(v))) // Note: Real implementation needs to serialize each element.
+		return serializeArrayOfStrings(v)
 
 	case nil:
 		return []byte("$-1\r\n")
@@ -125,6 +126,20 @@ func serializeOutput(output any, isError bool) []byte {
 	default:
 		return nil
 	}
+}
+
+func serializeString(s string) string {
+	return fmt.Sprintf("$%d\r\n%s\r\n", len(s), s)
+}
+
+func serializeArrayOfStrings(v []string) []byte {
+	var result = fmt.Sprintf("*%d\r\n", len(v))
+	for _, elem := range v {
+		elemSerialized := serializeString(elem)
+		result = result + elemSerialized
+	}
+	return []byte(result)
+
 }
 
 func AnyToString(input []any) ([]string, error) {

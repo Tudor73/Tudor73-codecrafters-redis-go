@@ -23,5 +23,17 @@ func NewDb() *Db {
 		DbMap: make(map[any]*MapValue),
 		Mu:    &sync.Mutex{},
 	}
+}
 
+func (db *Db) GetValue(key string) (any, bool) {
+	val, ok := db.DbMap[key]
+	if !ok {
+		return nil, false
+	}
+
+	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
+		delete(db.DbMap, key)
+		return nil, false
+	}
+	return val.Value, true
 }
