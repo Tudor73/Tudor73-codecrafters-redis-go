@@ -147,7 +147,7 @@ func (c *LRANGECommand) ExecuteCommand(args []string) (any, error) {
 
 	c.db.Mu.Lock()
 	val, ok := c.db.GetValue(key)
-
+	c.db.Mu.Unlock()
 	if !ok {
 		return []string{}, nil
 	}
@@ -174,6 +174,5 @@ func (c *LRANGECommand) ExecuteCommand(args []string) (any, error) {
 	if startIndex > stopIndex {
 		return []string{}, nil
 	}
-	c.db.Mu.Lock()
 	return valAsList[startIndex : stopIndex+1], nil
 }
