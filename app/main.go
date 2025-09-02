@@ -23,6 +23,7 @@ var SupportedCommands = map[string]bool{
 	"GET":    true,
 	"RPUSH":  true,
 	"LRANGE": true,
+	"LPUSH":  true,
 }
 
 func main() {

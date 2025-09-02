@@ -25,6 +25,8 @@ func NewCommand(name string, db *db.Db) (Command, error) {
 		return &SetCommand{db: db}, nil
 	case "RPUSH":
 		return &RPUSHCommand{db: db}, nil
+	case "LPUSH":
+		return &LPUSHCommand{db: db}, nil
 	case "LRANGE":
 		return &LRANGECommand{db: db}, nil
 	default:
@@ -121,6 +123,43 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 	val := c.db.DbMap[key]
 	for i := 2; i < len(args); i++ {
 		val.Value = append(val.Value.([]string), args[i])
+	}
+
+	listSize := len(val.Value.([]string))
+	c.db.Mu.Unlock()
+	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
+		c.db.Mu.Lock()
+		delete(c.db.DbMap, key)
+		c.db.Mu.Unlock()
+		return "-1", nil
+	}
+
+	return listSize, nil
+}
+
+type LPUSHCommand struct {
+	db *db.Db
+}
+
+func (c *LPUSHCommand) ExecuteCommand(args []string) (any, error) {
+	if len(args) < 3 {
+		return "", fmt.Errorf("wrong number of arguments for 'LPUSH' command")
+	}
+	key := args[1]
+
+	// TO DO - refactor this a bit to use the GetValue method
+	c.db.Mu.Lock()
+	_, ok := c.db.DbMap[key]
+
+	if !ok {
+		c.db.DbMap[key] = &db.MapValue{
+			Value: make([]string, 0),
+			SetAt: time.Now(),
+		}
+	}
+	val := c.db.DbMap[key]
+	for i := 2; i < len(args); i++ {
+		val.Value = append([]string{args[i]}, val.Value.([]string)...)
 	}
 
 	listSize := len(val.Value.([]string))
