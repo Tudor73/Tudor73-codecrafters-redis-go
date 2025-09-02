@@ -27,6 +27,8 @@ func NewCommand(name string, db *db.Db) (Command, error) {
 		return &RPUSHCommand{db: db}, nil
 	case "LPUSH":
 		return &LPUSHCommand{db: db}, nil
+	case "LLEN":
+		return &LLENCommand{db: db}, nil
 	case "LRANGE":
 		return &LRANGECommand{db: db}, nil
 	default:
@@ -163,6 +165,40 @@ func (c *LPUSHCommand) ExecuteCommand(args []string) (any, error) {
 	}
 
 	listSize := len(val.Value.([]string))
+	c.db.Mu.Unlock()
+	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
+		c.db.Mu.Lock()
+		delete(c.db.DbMap, key)
+		c.db.Mu.Unlock()
+		return "-1", nil
+	}
+
+	return listSize, nil
+}
+
+type LLENCommand struct {
+	db *db.Db
+}
+
+func (c *LLENCommand) ExecuteCommand(args []string) (any, error) {
+	if len(args) != 2 {
+		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
+	}
+	key := args[1]
+
+	// TO DO - refactor this a bit to use the GetValue method
+	c.db.Mu.Lock()
+	val, ok := c.db.DbMap[key]
+
+	if !ok {
+		return 0, nil
+	}
+	valAsList, ok := val.Value.([]string)
+	if !ok {
+		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
+	}
+
+	listSize := len(valAsList)
 	c.db.Mu.Unlock()
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		c.db.Mu.Lock()
