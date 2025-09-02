@@ -165,6 +165,19 @@ func (c *LRANGECommand) ExecuteCommand(args []string) (any, error) {
 	if !ok {
 		return "", fmt.Errorf("value not a list")
 	}
+	if startIndex < 0 {
+		startIndex = len(valAsList) + startIndex
+	}
+	if stopIndex < 0 {
+		stopIndex = len(valAsList) + stopIndex
+	}
+
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	if stopIndex < 0 {
+		stopIndex = 0
+	}
 	if startIndex >= len(valAsList) {
 		return []string{}, nil
 	}
