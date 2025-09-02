@@ -217,10 +217,18 @@ type LPOPCommand struct {
 }
 
 func (c *LPOPCommand) ExecuteCommand(args []string) (any, error) {
-	if len(args) != 2 {
+	if len(args) > 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
 	}
 	key := args[1]
+	var numberOfElements = 1
+	var err error
+	if len(args) == 3 {
+		numberOfElements, err = strconv.Atoi(args[2])
+		if err != nil {
+			return "", fmt.Errorf("argument to pop must be an integer")
+		}
+	}
 
 	// TO DO - refactor this a bit to use the GetValue method
 	c.db.Mu.Lock()
@@ -233,8 +241,13 @@ func (c *LPOPCommand) ExecuteCommand(args []string) (any, error) {
 	if !ok {
 		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
 	}
-	first := valAsList[0]
-	val.Value = valAsList[1:]
+	var first any
+	if numberOfElements == 1 {
+		first = valAsList[0]
+	} else {
+		first = valAsList[:numberOfElements]
+	}
+	val.Value = valAsList[numberOfElements:]
 
 	c.db.Mu.Unlock()
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
