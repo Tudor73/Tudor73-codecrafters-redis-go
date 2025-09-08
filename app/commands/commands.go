@@ -1,4 +1,4 @@
-package command
+package commands
 
 import (
 	"fmt"
@@ -9,47 +9,70 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/app/db"
 )
 
-type Command interface {
-	ExecuteCommand(args []string) (any, error)
+type baseCommand struct {
+	db       *db.Db
+	args     []string
+	Response chan []byte
 }
 
-func NewCommand(name string, db *db.Db) (Command, error) {
+func (c *baseCommand) GetResponseChan() chan []byte {
+	return c.Response
+}
+
+type Command interface {
+	ExecuteCommand() (any, error)
+	GetResponseChan() chan []byte
+}
+
+func NewCommand(name string, db *db.Db, args []string) (Command, error) {
+	b := baseCommand{
+		db:       db,
+		args:     args,
+		Response: make(chan []byte),
+	}
 	switch strings.ToUpper(name) {
 	case "PING":
-		return &PingCommand{}, nil
+		// PING doesn't need the db, so we can overwrite the base
+		return &PingCommand{baseCommand: baseCommand{args: args, Response: b.Response}}, nil
 	case "ECHO":
-		return &EchoCommand{}, nil
+		return &EchoCommand{baseCommand: baseCommand{args: args, Response: b.Response}}, nil
 	case "GET":
-		return &GetCommand{db: db}, nil
+		return &GetCommand{baseCommand: b}, nil
 	case "SET":
-		return &SetCommand{db: db}, nil
+		return &SetCommand{baseCommand: b}, nil
 	case "RPUSH":
-		return &RPUSHCommand{db: db}, nil
+		return &RPUSHCommand{baseCommand: b}, nil
 	case "LPUSH":
-		return &LPUSHCommand{db: db}, nil
+		return &LPUSHCommand{baseCommand: b}, nil
 	case "LLEN":
-		return &LLENCommand{db: db}, nil
+		return &LLENCommand{baseCommand: b}, nil
 	case "LPOP":
-		return &LPOPCommand{db: db}, nil
+		return &LPOPCommand{baseCommand: b}, nil
 	case "LRANGE":
-		return &LRANGECommand{db: db}, nil
+		return &LRANGECommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
 }
 
-type PingCommand struct{}
+type PingCommand struct {
+	baseCommand
+}
 
-func (c *PingCommand) ExecuteCommand(args []string) (any, error) {
+func (c *PingCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) != 1 {
 		return "", fmt.Errorf("wrong number of arguments for 'PING' command")
 	}
 	return "PONG", nil
 }
 
-type EchoCommand struct{}
+type EchoCommand struct {
+	baseCommand
+}
 
-func (c *EchoCommand) ExecuteCommand(args []string) (any, error) {
+func (c *EchoCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'ECHO' command")
 	}
@@ -57,18 +80,17 @@ func (c *EchoCommand) ExecuteCommand(args []string) (any, error) {
 }
 
 type GetCommand struct {
-	db *db.Db
+	baseCommand
 }
 
-func (c *GetCommand) ExecuteCommand(args []string) (any, error) {
+func (c *GetCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
 	}
 	key := args[1]
 
-	c.db.Mu.Lock()
 	val, ok := c.db.GetValue(key)
-	c.db.Mu.Unlock()
 	if !ok {
 		return nil, nil
 	}
@@ -76,10 +98,11 @@ func (c *GetCommand) ExecuteCommand(args []string) (any, error) {
 }
 
 type SetCommand struct {
-	db *db.Db
+	baseCommand
 }
 
-func (c *SetCommand) ExecuteCommand(args []string) (any, error) {
+func (c *SetCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) < 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'SET' command")
 	}
@@ -97,25 +120,23 @@ func (c *SetCommand) ExecuteCommand(args []string) (any, error) {
 		dbVal.ExpireAt = time.Now().Add(time.Duration(milliseconds) * time.Millisecond)
 	}
 
-	c.db.Mu.Lock()
 	c.db.DbMap[key] = &dbVal
-	c.db.Mu.Unlock()
 
 	return "OK", nil
 }
 
 type RPUSHCommand struct {
-	db *db.Db
+	baseCommand
 }
 
-func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
+func (c *RPUSHCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) < 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'RPUSH' command")
 	}
 	key := args[1]
 
 	// TO DO - refactor this a bit to use the GetValue method
-	c.db.Mu.Lock()
 	_, ok := c.db.DbMap[key]
 
 	if !ok {
@@ -130,11 +151,8 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 	}
 
 	listSize := len(val.Value.([]string))
-	c.db.Mu.Unlock()
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
-		c.db.Mu.Lock()
 		delete(c.db.DbMap, key)
-		c.db.Mu.Unlock()
 		return "-1", nil
 	}
 
@@ -142,17 +160,17 @@ func (c *RPUSHCommand) ExecuteCommand(args []string) (any, error) {
 }
 
 type LPUSHCommand struct {
-	db *db.Db
+	baseCommand
 }
 
-func (c *LPUSHCommand) ExecuteCommand(args []string) (any, error) {
+func (c *LPUSHCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) < 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'LPUSH' command")
 	}
 	key := args[1]
 
 	// TO DO - refactor this a bit to use the GetValue method
-	c.db.Mu.Lock()
 	_, ok := c.db.DbMap[key]
 
 	if !ok {
@@ -167,11 +185,8 @@ func (c *LPUSHCommand) ExecuteCommand(args []string) (any, error) {
 	}
 
 	listSize := len(val.Value.([]string))
-	c.db.Mu.Unlock()
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
-		c.db.Mu.Lock()
 		delete(c.db.DbMap, key)
-		c.db.Mu.Unlock()
 		return "-1", nil
 	}
 
@@ -179,17 +194,17 @@ func (c *LPUSHCommand) ExecuteCommand(args []string) (any, error) {
 }
 
 type LLENCommand struct {
-	db *db.Db
+	baseCommand
 }
 
-func (c *LLENCommand) ExecuteCommand(args []string) (any, error) {
+func (c *LLENCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
 	}
 	key := args[1]
 
 	// TO DO - refactor this a bit to use the GetValue method
-	c.db.Mu.Lock()
 	val, ok := c.db.DbMap[key]
 
 	if !ok {
@@ -201,11 +216,8 @@ func (c *LLENCommand) ExecuteCommand(args []string) (any, error) {
 	}
 
 	listSize := len(valAsList)
-	c.db.Mu.Unlock()
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
-		c.db.Mu.Lock()
 		delete(c.db.DbMap, key)
-		c.db.Mu.Unlock()
 		return "-1", nil
 	}
 
@@ -213,10 +225,11 @@ func (c *LLENCommand) ExecuteCommand(args []string) (any, error) {
 }
 
 type LPOPCommand struct {
-	db *db.Db
+	baseCommand
 }
 
-func (c *LPOPCommand) ExecuteCommand(args []string) (any, error) {
+func (c *LPOPCommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) > 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
 	}
@@ -231,7 +244,6 @@ func (c *LPOPCommand) ExecuteCommand(args []string) (any, error) {
 	}
 
 	// TO DO - refactor this a bit to use the GetValue method
-	c.db.Mu.Lock()
 	val, ok := c.db.DbMap[key]
 
 	if !ok {
@@ -249,11 +261,8 @@ func (c *LPOPCommand) ExecuteCommand(args []string) (any, error) {
 	}
 	val.Value = valAsList[numberOfElements:]
 
-	c.db.Mu.Unlock()
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
-		c.db.Mu.Lock()
 		delete(c.db.DbMap, key)
-		c.db.Mu.Unlock()
 		return "-1", nil
 	}
 
@@ -261,18 +270,17 @@ func (c *LPOPCommand) ExecuteCommand(args []string) (any, error) {
 }
 
 type LRANGECommand struct {
-	db *db.Db
+	baseCommand
 }
 
-func (c *LRANGECommand) ExecuteCommand(args []string) (any, error) {
+func (c *LRANGECommand) ExecuteCommand() (any, error) {
+	args := c.args
 	if len(args) != 4 {
 		return "", fmt.Errorf("wrong number of arguments for 'LRANGE' command")
 	}
 	key := args[1]
 
-	c.db.Mu.Lock()
 	val, ok := c.db.GetValue(key)
-	c.db.Mu.Unlock()
 	if !ok {
 		return []string{}, nil
 	}

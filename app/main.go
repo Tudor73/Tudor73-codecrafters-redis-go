@@ -8,8 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/codecrafters-io/redis-starter-go/app/command"
+	"github.com/codecrafters-io/redis-starter-go/app/commands"
 	"github.com/codecrafters-io/redis-starter-go/app/db"
+	"github.com/codecrafters-io/redis-starter-go/app/eventloop"
 	"github.com/codecrafters-io/redis-starter-go/app/parser"
 )
 
@@ -38,6 +39,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	eventLoop := eventloop.NewEventLoop()
+	go eventLoop.Run()
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -45,11 +49,11 @@ func main() {
 			continue
 		}
 
-		go handleConnection(conn, db)
+		go handleConnection(conn, db, eventLoop)
 	}
 }
 
-func handleConnection(conn net.Conn, db *db.Db) {
+func handleConnection(conn net.Conn, db *db.Db, queue *eventloop.EventLoop) {
 	defer conn.Close()
 
 	fmt.Println("Handling Connection", conn.RemoteAddr())
@@ -68,80 +72,40 @@ func handleConnection(conn net.Conn, db *db.Db) {
 			continue
 		}
 
-		output, err := RunCommand(value, db)
+		command, err := RunCommand(value, db, queue)
 		if err != nil {
-			serializedError := serializeOutput(err, true)
+			serializedError := commands.SerializeOutput(err, true)
 			conn.Write(serializedError)
 			continue
 		}
-		outputSerialized := serializeOutput(output, false)
-		if outputSerialized == nil {
-			serializedError := serializeOutput(fmt.Errorf("unsupported protocol type"), true)
-			conn.Write(serializedError)
-			continue
-		}
-		conn.Write(outputSerialized)
+		resultChan := command.GetResponseChan()
+		result := <-resultChan
+		conn.Write(result)
+
 	}
 
 }
 
-func RunCommand(input any, db *db.Db) (any, error) {
+func RunCommand(input any, db *db.Db, queue *eventloop.EventLoop) (commands.Command, error) {
 	arrAsAny, ok := input.([]any)
 	if !ok || len(arrAsAny) == 0 {
-		return "", fmt.Errorf("command must be an array of strings")
+		return nil, fmt.Errorf("command must be an array of strings")
 	}
 
 	arr, err := AnyToString(arrAsAny)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	commandName := arr[0]
 	commandName = strings.ToUpper(commandName)
 
-	command, err := command.NewCommand(commandName, db)
+	command, err := commands.NewCommand(commandName, db, arr)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return command.ExecuteCommand(arr)
-
-}
-func serializeOutput(output any, isError bool) []byte {
-	if output == "PONG" {
-		return []byte(fmt.Sprintf("+%s\r\n", output))
-	}
-
-	if isError {
-		return []byte(fmt.Sprintf("-%s\r\n", output))
-	}
-
-	switch v := output.(type) {
-	case string:
-		return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(v), v))
-	case int, int64, int32:
-		return []byte(fmt.Sprintf(":%d\r\n", v))
-	case []string:
-		return serializeArrayOfStrings(v)
-
-	case nil:
-		return []byte("$-1\r\n")
-
-	default:
-		return nil
-	}
-}
-
-func serializeString(s string) string {
-	return fmt.Sprintf("$%d\r\n%s\r\n", len(s), s)
-}
-
-func serializeArrayOfStrings(v []string) []byte {
-	var result = fmt.Sprintf("*%d\r\n", len(v))
-	for _, elem := range v {
-		elemSerialized := serializeString(elem)
-		result = result + elemSerialized
-	}
-	return []byte(result)
+	queue.Tasks <- command
+	return command, nil
 
 }
 
