@@ -10,18 +10,32 @@ import (
 )
 
 type baseCommand struct {
-	db       *db.Db
-	args     []string
-	Response chan []byte
+	db         *db.Db
+	args       []string
+	Response   chan []byte
+	isBlocking bool
+	callback   Command
 }
 
 func (c *baseCommand) GetResponseChan() chan []byte {
 	return c.Response
 }
+func (c *baseCommand) SetResponseChan(newChan chan []byte) {
+	c.Response = newChan
+}
+func (c *baseCommand) IsBlocking() bool {
+	return c.isBlocking
+}
+func (c *baseCommand) Callback() Command {
+	return c.callback
+}
 
 type Command interface {
 	ExecuteCommand() (any, error)
+	IsBlocking() bool
 	GetResponseChan() chan []byte
+	Callback() Command
+	SetResponseChan(newChan chan []byte)
 }
 
 func NewCommand(name string, db *db.Db, args []string) (Command, error) {
@@ -48,6 +62,9 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 		return &LLENCommand{baseCommand: b}, nil
 	case "LPOP":
 		return &LPOPCommand{baseCommand: b}, nil
+	case "BLPOP":
+		b.isBlocking = true
+		return &BLPOPCommand{baseCommand: b}, nil
 	case "LRANGE":
 		return &LRANGECommand{baseCommand: b}, nil
 	default:
@@ -144,6 +161,9 @@ func (c *RPUSHCommand) ExecuteCommand() (any, error) {
 			Value: make([]string, 0),
 			SetAt: time.Now(),
 		}
+		if _, ok := c.db.ListChannels[key]; !ok {
+			c.db.ListChannels[key] = make(chan bool, 1)
+		}
 	}
 	val := c.db.DbMap[key]
 	for i := 2; i < len(args); i++ {
@@ -155,6 +175,7 @@ func (c *RPUSHCommand) ExecuteCommand() (any, error) {
 		delete(c.db.DbMap, key)
 		return "-1", nil
 	}
+	c.db.ListChannels[key] <- true
 
 	return listSize, nil
 }
@@ -178,6 +199,9 @@ func (c *LPUSHCommand) ExecuteCommand() (any, error) {
 			Value: make([]string, 0),
 			SetAt: time.Now(),
 		}
+		if _, ok := c.db.ListChannels[key]; !ok {
+			c.db.ListChannels[key] = make(chan bool, 1)
+		}
 	}
 	val := c.db.DbMap[key]
 	for i := 2; i < len(args); i++ {
@@ -189,7 +213,10 @@ func (c *LPUSHCommand) ExecuteCommand() (any, error) {
 		delete(c.db.DbMap, key)
 		return "-1", nil
 	}
-
+	select {
+	case c.db.ListChannels[key] <- true:
+	default:
+	}
 	return listSize, nil
 }
 
@@ -229,6 +256,7 @@ type LPOPCommand struct {
 }
 
 func (c *LPOPCommand) ExecuteCommand() (any, error) {
+	fmt.Println("executing  LPOP")
 	args := c.args
 	if len(args) > 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
@@ -263,10 +291,48 @@ func (c *LPOPCommand) ExecuteCommand() (any, error) {
 
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
+		// to do - delete the channel as well
 		return "-1", nil
+	}
+	if len(valAsList)-numberOfElements == 0 {
+		delete(c.db.DbMap, key)
+		// to do - delete the channel as well
 	}
 
 	return first, nil
+}
+
+type BLPOPCommand struct {
+	baseCommand
+}
+
+func (c *BLPOPCommand) ExecuteCommand() (any, error) {
+	fmt.Println("executing  BLPOP")
+	args := c.args
+	if len(args) != 3 {
+		return "", fmt.Errorf("wrong number of arguments for 'BLPOP' command")
+	}
+	key := args[1]
+	var timeout = 0
+	var err error
+	timeout, err = strconv.Atoi(args[2])
+	if err != nil {
+		return "", fmt.Errorf("argument to blpop must be an integer")
+	}
+
+	// TO DO - refactor this a bit to use the GetValue method
+	if _, ok := c.db.ListChannels[key]; !ok {
+		c.db.ListChannels[key] = make(chan bool, 1)
+	}
+	if timeout == 0 {
+		_ = <-c.db.ListChannels[key]
+	} else {
+		time.Sleep(time.Duration(timeout) * time.Second)
+	}
+	c.callback, _ = NewCommand("LPOP", c.db, []string{"LPOP", key})
+	c.callback.SetResponseChan(c.Response)
+
+	return nil, nil
 }
 
 type LRANGECommand struct {

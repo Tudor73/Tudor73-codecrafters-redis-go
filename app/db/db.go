@@ -12,12 +12,14 @@ type MapValue struct {
 }
 
 type Db struct {
-	DbMap map[any]*MapValue
+	DbMap        map[any]*MapValue
+	ListChannels map[string]chan bool
 }
 
 func NewDb() *Db {
 	return &Db{
-		DbMap: make(map[any]*MapValue),
+		DbMap:        make(map[any]*MapValue),
+		ListChannels: make(map[string]chan bool),
 	}
 }
 

@@ -27,6 +27,7 @@ var SupportedCommands = map[string]bool{
 	"LPUSH":  true,
 	"LLEN":   true,
 	"LPOP":   true,
+	"BLPOP":  true,
 }
 
 func main() {
