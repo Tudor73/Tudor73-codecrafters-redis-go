@@ -175,7 +175,10 @@ func (c *RPUSHCommand) ExecuteCommand() (any, error) {
 		delete(c.db.DbMap, key)
 		return "-1", nil
 	}
-	c.db.ListChannels[key] <- true
+	select {
+	case c.db.ListChannels[key] <- true:
+	default:
+	}
 
 	return listSize, nil
 }
@@ -325,11 +328,11 @@ func (c *BLPOPCommand) ExecuteCommand() (any, error) {
 		c.db.ListChannels[key] = make(chan bool, 1)
 	}
 	if timeout == 0 {
-		_ = <-c.db.ListChannels[key]
+		<-c.db.ListChannels[key]
 	} else {
 		time.Sleep(time.Duration(timeout) * time.Second)
 	}
-	c.callback, _ = NewCommand("LPOP", c.db, []string{"LPOP", key})
+	c.callback, _ = NewCallback("BLPOP", c.db, []string{"LPOP", key})
 	c.callback.SetResponseChan(c.Response)
 
 	return nil, nil
