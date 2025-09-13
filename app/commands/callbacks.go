@@ -33,7 +33,7 @@ func (c *BLPOPCallback) ExecuteCommand() (any, error) {
 	val, ok := c.db.DbMap[key]
 
 	if !ok {
-		return 0, nil
+		return []string{}, nil
 	}
 	valAsList, ok := val.Value.([]string)
 	if !ok {
@@ -49,8 +49,11 @@ func (c *BLPOPCallback) ExecuteCommand() (any, error) {
 	}
 	if len(valAsList)-1 == 0 {
 		delete(c.db.DbMap, key)
-		// to do - delete the channel as well
+		delete(c.db.ListChannels, key)
+	} else {
+		c.db.ListChannels[key] <- true
 	}
+
 	result := []string{key, first}
 
 	return result, nil

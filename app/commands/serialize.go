@@ -32,6 +32,9 @@ func serializeString(s string) string {
 }
 
 func serializeArrayOfStrings(v []string) []byte {
+	if len(v) == 1 && v[0] == "-1" {
+		return []byte(fmt.Sprintf("*%d\r\n", -1))
+	}
 	var result = fmt.Sprintf("*%d\r\n", len(v))
 	for _, elem := range v {
 		elemSerialized := serializeString(elem)

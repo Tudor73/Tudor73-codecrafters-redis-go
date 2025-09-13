@@ -25,10 +25,25 @@ func (e *EventLoop) Run() {
 		case task := <-e.Tasks:
 			if task.IsBlocking() {
 				go func() {
-					_, _ = task.ExecuteCommand()
-					if task.Callback() != nil {
-						e.Callbacks <- task.Callback()
+					output, err := task.ExecuteCommand()
+					resultChan := task.GetResponseChan()
+					if err != nil {
+						serializedError := commands.SerializeOutput(err, true)
+						resultChan <- serializedError
+						return
 					}
+					if output == nil && task.Callback() != nil {
+						e.Callbacks <- task.Callback()
+						return
+					}
+					outputSerialized := commands.SerializeOutput(output, false)
+					if outputSerialized == nil {
+						serializedError := commands.SerializeOutput(fmt.Errorf("unsupported protocol type"), true)
+						resultChan <- serializedError
+						return
+					}
+					resultChan <- outputSerialized
+
 				}()
 			} else {
 				output, err := task.ExecuteCommand()

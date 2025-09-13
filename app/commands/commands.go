@@ -294,12 +294,12 @@ func (c *LPOPCommand) ExecuteCommand() (any, error) {
 
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
-		// to do - delete the channel as well
+		delete(c.db.ListChannels, key)
 		return "-1", nil
 	}
 	if len(valAsList)-numberOfElements == 0 {
 		delete(c.db.DbMap, key)
-		// to do - delete the channel as well
+		delete(c.db.ListChannels, key)
 	}
 
 	return first, nil
@@ -316,9 +316,9 @@ func (c *BLPOPCommand) ExecuteCommand() (any, error) {
 		return "", fmt.Errorf("wrong number of arguments for 'BLPOP' command")
 	}
 	key := args[1]
-	var timeout = 0
+	var timeout = 0.0
 	var err error
-	timeout, err = strconv.Atoi(args[2])
+	timeout, err = strconv.ParseFloat(args[2], 32)
 	if err != nil {
 		return "", fmt.Errorf("argument to blpop must be an integer")
 	}
@@ -330,7 +330,19 @@ func (c *BLPOPCommand) ExecuteCommand() (any, error) {
 	if timeout == 0 {
 		<-c.db.ListChannels[key]
 	} else {
-		time.Sleep(time.Duration(timeout) * time.Second)
+		blocking := true
+		startTime := time.Now()
+		for blocking {
+			select {
+			case <-c.db.ListChannels[key]:
+				blocking = false
+			default:
+				if time.Since(startTime) > time.Duration(timeout*float64(time.Second)) {
+					blocking = false
+					return []string{"-1"}, nil
+				}
+			}
+		}
 	}
 	c.callback, _ = NewCallback("BLPOP", c.db, []string{"LPOP", key})
 	c.callback.SetResponseChan(c.Response)
