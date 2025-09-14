@@ -44,7 +44,7 @@ func (c *BLPOPCallback) ExecuteCommand() (any, error) {
 
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
-		// to do - delete the channel as well
+		delete(c.db.ListChannels, key)
 		return "-1", nil
 	}
 	if len(valAsList)-1 == 0 {
@@ -55,6 +55,5 @@ func (c *BLPOPCallback) ExecuteCommand() (any, error) {
 	}
 
 	result := []string{key, first}
-
 	return result, nil
 }

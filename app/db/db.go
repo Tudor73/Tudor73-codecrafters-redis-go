@@ -35,3 +35,7 @@ func (db *Db) GetValue(key string) (any, bool) {
 	}
 	return val.Value, true
 }
+
+func (db *Db) SetValue(key string, value any) {
+	db.DbMap[key] = &MapValue{Value: value}
+}

@@ -46,42 +46,34 @@ func (e *EventLoop) Run() {
 
 				}()
 			} else {
-				output, err := task.ExecuteCommand()
-				resultChan := task.GetResponseChan()
-				if err != nil {
-					serializedError := commands.SerializeOutput(err, true)
-					resultChan <- serializedError
-					continue
-				}
-				outputSerialized := commands.SerializeOutput(output, false)
-				if outputSerialized == nil {
-					serializedError := commands.SerializeOutput(fmt.Errorf("unsupported protocol type"), true)
-					resultChan <- serializedError
-					continue
-				}
-				resultChan <- outputSerialized
+				handleTask(task)
 			}
 
 		case task := <-e.Callbacks:
-			output, err := task.ExecuteCommand()
-			resultChan := task.GetResponseChan()
-			if err != nil {
-				serializedError := commands.SerializeOutput(err, true)
-				resultChan <- serializedError
-				continue
-			}
-			outputSerialized := commands.SerializeOutput(output, false)
-			if outputSerialized == nil {
-				serializedError := commands.SerializeOutput(fmt.Errorf("unsupported protocol type"), true)
-				resultChan <- serializedError
-				continue
-			}
-			resultChan <- outputSerialized
+			handleTask(task)
 		case stop := <-e.stop:
 			if stop {
 				return
 			}
 		}
 	}
+
+}
+
+func handleTask(task commands.Command) {
+	output, err := task.ExecuteCommand()
+	resultChan := task.GetResponseChan()
+	if err != nil {
+		serializedError := commands.SerializeOutput(err, true)
+		resultChan <- serializedError
+		return
+	}
+	outputSerialized := commands.SerializeOutput(output, false)
+	if outputSerialized == nil {
+		serializedError := commands.SerializeOutput(fmt.Errorf("unsupported protocol type"), true)
+		resultChan <- serializedError
+		return
+	}
+	resultChan <- outputSerialized
 
 }

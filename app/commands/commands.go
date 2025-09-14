@@ -120,7 +120,7 @@ type SetCommand struct {
 
 func (c *SetCommand) ExecuteCommand() (any, error) {
 	args := c.args
-	if len(args) < 3 {
+	if len(args) < 3 || len(args) != 5 {
 		return "", fmt.Errorf("wrong number of arguments for 'SET' command")
 	}
 	key := args[1]
@@ -242,7 +242,7 @@ func (c *LLENCommand) ExecuteCommand() (any, error) {
 	}
 	valAsList, ok := val.Value.([]string)
 	if !ok {
-		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
+		return "", fmt.Errorf("value not a list")
 	}
 
 	listSize := len(valAsList)
@@ -282,7 +282,7 @@ func (c *LPOPCommand) ExecuteCommand() (any, error) {
 	}
 	valAsList, ok := val.Value.([]string)
 	if !ok {
-		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
+		return "", fmt.Errorf("value not a list")
 	}
 	var first any
 	if numberOfElements == 1 {
