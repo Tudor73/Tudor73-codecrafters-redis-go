@@ -120,7 +120,7 @@ type SetCommand struct {
 
 func (c *SetCommand) ExecuteCommand() (any, error) {
 	args := c.args
-	if len(args) < 3 || len(args) != 5 {
+	if len(args) < 3 || len(args) == 4 {
 		return "", fmt.Errorf("wrong number of arguments for 'SET' command")
 	}
 	key := args[1]

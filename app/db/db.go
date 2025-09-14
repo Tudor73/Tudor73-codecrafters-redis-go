@@ -39,3 +39,7 @@ func (db *Db) GetValue(key string) (any, bool) {
 func (db *Db) SetValue(key string, value any) {
 	db.DbMap[key] = &MapValue{Value: value}
 }
+func (db *Db) DelValue(key string) {
+	delete(db.DbMap, key)
+	delete(db.ListChannels, key)
+}

@@ -9,9 +9,34 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestSet(t *testing.T) {
+	db := db.NewDb()
+	testCases := []struct {
+		args           []string
+		expectedOutput any
+		expectedError  error
+		success        bool
+	}{
+		{
+			args:           []string{"SET", "foo", "strawberry"},
+			expectedOutput: "OK",
+			success:        true,
+		},
+	}
+
+	for _, tt := range testCases {
+		command, _ := NewCommand("SET", db, tt.args)
+		output, err := command.ExecuteCommand()
+		assert.Equal(t, tt.expectedError, err)
+		assert.Equal(t, tt.expectedOutput, output)
+		_, ok := db.GetValue("foo")
+		assert.Equal(t, tt.success, ok)
+		db.DelValue("foo")
+	}
+}
+
 func TestSetWithTimeout(t *testing.T) {
 	db := db.NewDb()
-
 	testCases := []struct {
 		args           []string
 		expectedOutput any
@@ -42,8 +67,8 @@ func TestSetWithTimeout(t *testing.T) {
 			time.Sleep(time.Second)
 			_, ok = db.GetValue("foo")
 			assert.Equal(t, false, ok)
-
 		}
+		db.DelValue("foo")
 	}
 }
 func TestRPUSHCommand(t *testing.T) {
