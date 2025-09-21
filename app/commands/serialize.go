@@ -2,8 +2,8 @@ package commands
 
 import "fmt"
 
-func SerializeOutput(output any, isError bool) []byte {
-	if output == "PONG" {
+func SerializeOutput(commandName string, output any, isError bool) []byte {
+	if commandName == "PING" || commandName == "TYPE" {
 		return []byte(fmt.Sprintf("+%s\r\n", output))
 	}
 

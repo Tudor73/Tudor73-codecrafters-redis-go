@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,12 @@ func (c *baseCommand) IsBlocking() bool {
 func (c *baseCommand) Callback() Command {
 	return c.callback
 }
+func (c *baseCommand) GetName() string {
+	if len(c.args) == 0 {
+		return ""
+	}
+	return c.args[0]
+}
 
 type Command interface {
 	ExecuteCommand() (any, error)
@@ -36,6 +43,7 @@ type Command interface {
 	GetResponseChan() chan []byte
 	Callback() Command
 	SetResponseChan(newChan chan []byte)
+	GetName() string
 }
 
 func NewCommand(name string, db *db.Db, args []string) (Command, error) {
@@ -67,6 +75,8 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 		return &BLPOPCommand{baseCommand: b}, nil
 	case "LRANGE":
 		return &LRANGECommand{baseCommand: b}, nil
+	case "TYPE":
+		return &TypeCommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
@@ -402,4 +412,32 @@ func (c *LRANGECommand) ExecuteCommand() (any, error) {
 		return []string{}, nil
 	}
 	return valAsList[startIndex : stopIndex+1], nil
+}
+
+type TypeCommand struct {
+	baseCommand
+}
+
+func (c *TypeCommand) ExecuteCommand() (any, error) {
+	args := c.args
+	if len(args) != 2 {
+		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
+	}
+	key := args[1]
+
+	val, ok := c.db.GetValue(key)
+	if !ok {
+		return "none", nil
+	}
+
+	valType := reflect.TypeOf(val)
+	switch valType.Kind() {
+	case reflect.String:
+		return "string", nil
+	case reflect.Slice:
+		return "list", nil
+	default:
+		return "", fmt.Errorf("unsupported type %s", valType.Kind().String())
+	}
+
 }

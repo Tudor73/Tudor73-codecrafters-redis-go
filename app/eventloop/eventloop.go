@@ -28,7 +28,7 @@ func (e *EventLoop) Run() {
 					output, err := task.ExecuteCommand()
 					resultChan := task.GetResponseChan()
 					if err != nil {
-						serializedError := commands.SerializeOutput(err, true)
+						serializedError := commands.SerializeOutput(task.GetName(), err, true)
 						resultChan <- serializedError
 						return
 					}
@@ -36,9 +36,9 @@ func (e *EventLoop) Run() {
 						e.Callbacks <- task.Callback()
 						return
 					}
-					outputSerialized := commands.SerializeOutput(output, false)
+					outputSerialized := commands.SerializeOutput(task.GetName(), output, false)
 					if outputSerialized == nil {
-						serializedError := commands.SerializeOutput(fmt.Errorf("unsupported protocol type"), true)
+						serializedError := commands.SerializeOutput("", fmt.Errorf("unsupported protocol type"), true)
 						resultChan <- serializedError
 						return
 					}
@@ -64,16 +64,15 @@ func handleTask(task commands.Command) {
 	output, err := task.ExecuteCommand()
 	resultChan := task.GetResponseChan()
 	if err != nil {
-		serializedError := commands.SerializeOutput(err, true)
+		serializedError := commands.SerializeOutput(task.GetName(), err, true)
 		resultChan <- serializedError
 		return
 	}
-	outputSerialized := commands.SerializeOutput(output, false)
+	outputSerialized := commands.SerializeOutput(task.GetName(), output, false)
 	if outputSerialized == nil {
-		serializedError := commands.SerializeOutput(fmt.Errorf("unsupported protocol type"), true)
+		serializedError := commands.SerializeOutput("", fmt.Errorf("unsupported protocol type"), true)
 		resultChan <- serializedError
 		return
 	}
 	resultChan <- outputSerialized
-
 }
