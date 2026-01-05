@@ -77,6 +77,8 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 		return &LRANGECommand{baseCommand: b}, nil
 	case "TYPE":
 		return &TypeCommand{baseCommand: b}, nil
+	case "XADD":
+		return &StreamCommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
@@ -435,6 +437,10 @@ func (c *TypeCommand) ExecuteCommand() (any, error) {
 	case reflect.String:
 		return "string", nil
 	case reflect.Slice:
+		_, check := val.([]StreamValue)
+		if check {
+			return "stream", nil
+		}
 		return "list", nil
 	default:
 		return "", fmt.Errorf("unsupported type %s", valType.Kind().String())

@@ -29,6 +29,7 @@ var SupportedCommands = map[string]bool{
 	"LPOP":   true,
 	"BLPOP":  true,
 	"TYPE":   true,
+	"XADD":   true,
 }
 
 func main() {

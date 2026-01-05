@@ -3,7 +3,7 @@ package commands
 import "fmt"
 
 func SerializeOutput(commandName string, output any, isError bool) []byte {
-	if commandName == "PING" || commandName == "TYPE" {
+	if commandName == "PING" || commandName == "TYPE" || commandName=="SET" {
 		return []byte(fmt.Sprintf("+%s\r\n", output))
 	}
 
