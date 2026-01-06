@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/app/db"
 )
@@ -91,9 +92,17 @@ func validateId(id string, lastEntry *StreamValue) (string, error) {
 
 func parseId(id string) (int, int, error) {
 	values := strings.Split(id, "-")
-	if len(values) != 2 {
+	if len(values) > 2 {
 		return 0, 0, fmt.Errorf("ERR the id specified is not in the right format")
 	}
+	if len(values) == 1 {
+		if values[0] != "*" {
+			return 0, 0, fmt.Errorf("ERR the id specified is not in the right format")
+		}
+		values[0] = strconv.FormatInt(time.Now().UnixMilli(), 10)
+		values = append(values, "*")
+	}
+
 	if values[1] == "*" {
 		values[1] = "-1"
 	}
