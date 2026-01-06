@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/app/db"
 )
@@ -28,6 +30,10 @@ func (s *StreamCommand) ExecuteCommand() (any, error) {
 
 	val, ok := s.db.DbMap[key]
 	if !ok {
+		err := validateId(id, nil)
+		if err != nil {
+			return "", err
+		}
 		s.db.DbMap[key] = &db.MapValue{
 			Value: []StreamValue{StreamValue{
 				Id:     id,
@@ -35,6 +41,10 @@ func (s *StreamCommand) ExecuteCommand() (any, error) {
 			}},
 		}
 	} else {
+		err := validateId(id, &val.Value.([]StreamValue)[len(val.Value.([]StreamValue))-1])
+		if err != nil {
+			return "", err
+		}
 		val.Value = append(val.Value.([]StreamValue), StreamValue{Id: id, Fields: mapValues})
 	}
 	return id, nil
@@ -47,4 +57,43 @@ func parseMapValues(args []string) map[string]any {
 		mapValues[args[i]] = args[i+1]
 	}
 	return mapValues
+}
+
+func validateId(id string, lastEntry *StreamValue) error {
+
+	miliseconds, sequenceNumber, err := parseId(id)
+	if err != nil {
+		return err
+	}
+	prevMiliseconds, prevNumber := 0, 0
+	if lastEntry != nil {
+		prevMiliseconds, prevNumber, _ = parseId(lastEntry.Id)
+	}
+	if miliseconds == 0 && sequenceNumber == 0 {
+		return fmt.Errorf("ERR The ID specified in XADD must be greater than 0-0")
+	}
+	if miliseconds < prevMiliseconds || sequenceNumber < prevNumber {
+		return fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+	}
+	if miliseconds == prevMiliseconds && sequenceNumber == prevNumber {
+		return fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+	}
+	return nil
+}
+
+func parseId(id string) (int, int, error) {
+	values := strings.Split(id, "-")
+	if len(values) != 2 {
+		return 0, 0, fmt.Errorf("ERR the id specified is not in the right format")
+	}
+	miliseconds, err := strconv.Atoi(values[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("ERR invalid format")
+	}
+	sequenceNumber, err := strconv.Atoi(values[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("ERR invalid format")
+	}
+
+	return miliseconds, sequenceNumber, nil
 }
