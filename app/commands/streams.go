@@ -29,8 +29,9 @@ func (s *StreamCommand) ExecuteCommand() (any, error) {
 	mapValues := parseMapValues(args)
 
 	val, ok := s.db.DbMap[key]
+	var err error
 	if !ok {
-		err := validateId(id, nil)
+		id, err = validateId(id, nil)
 		if err != nil {
 			return "", err
 		}
@@ -41,7 +42,7 @@ func (s *StreamCommand) ExecuteCommand() (any, error) {
 			}},
 		}
 	} else {
-		err := validateId(id, &val.Value.([]StreamValue)[len(val.Value.([]StreamValue))-1])
+		id, err = validateId(id, &val.Value.([]StreamValue)[len(val.Value.([]StreamValue))-1])
 		if err != nil {
 			return "", err
 		}
@@ -59,26 +60,33 @@ func parseMapValues(args []string) map[string]any {
 	return mapValues
 }
 
-func validateId(id string, lastEntry *StreamValue) error {
+func validateId(id string, lastEntry *StreamValue) (string, error) {
 
 	miliseconds, sequenceNumber, err := parseId(id)
 	if err != nil {
-		return err
+		return "", err
 	}
 	prevMiliseconds, prevNumber := 0, 0
 	if lastEntry != nil {
 		prevMiliseconds, prevNumber, _ = parseId(lastEntry.Id)
 	}
-	if miliseconds == 0 && sequenceNumber == 0 {
-		return fmt.Errorf("ERR The ID specified in XADD must be greater than 0-0")
+	if sequenceNumber == -1 {
+		if miliseconds == prevMiliseconds {
+			sequenceNumber = prevNumber + 1
+		} else {
+			sequenceNumber = 0
+		}
 	}
-	if miliseconds < prevMiliseconds || sequenceNumber < prevNumber {
-		return fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+	if miliseconds == 0 && sequenceNumber == 0 {
+		return "", fmt.Errorf("ERR The ID specified in XADD must be greater than 0-0")
+	}
+	if miliseconds < prevMiliseconds {
+		return "", fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
 	if miliseconds == prevMiliseconds && sequenceNumber == prevNumber {
-		return fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+		return "", fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
-	return nil
+	return fmt.Sprintf("%d-%d", miliseconds, sequenceNumber), nil
 }
 
 func parseId(id string) (int, int, error) {
@@ -86,6 +94,10 @@ func parseId(id string) (int, int, error) {
 	if len(values) != 2 {
 		return 0, 0, fmt.Errorf("ERR the id specified is not in the right format")
 	}
+	if values[1] == "*" {
+		values[1] = "-1"
+	}
+
 	miliseconds, err := strconv.Atoi(values[0])
 	if err != nil {
 		return 0, 0, fmt.Errorf("ERR invalid format")
