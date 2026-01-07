@@ -80,21 +80,16 @@ func (s *StreamRangeCommand) ExecuteCommand() (string, error) {
 		from = valAsList[0].Id
 	}
 	for i, v := range valAsList {
-		if v.Id == from {
-			result = append(result, v)
+		if v.Id >= from {
 			fromIndex = i
 			break
 		}
 	}
-	if len(result) == 0 {
-		return "", fmt.Errorf("id not found")
-	}
-
 	if to == "+" {
 		to = valAsList[len(valAsList)-1].Id
 	}
 
-	for j := fromIndex + 1; j < len(valAsList); j++ {
+	for j := fromIndex; j < len(valAsList); j++ {
 		result = append(result, valAsList[j])
 		if valAsList[j].Id == to {
 			break
@@ -102,6 +97,51 @@ func (s *StreamRangeCommand) ExecuteCommand() (string, error) {
 	}
 
 	encodedArray, err := Encode(result)
+	if err != nil {
+		return "", err
+	}
+	return encodedArray, nil
+}
+
+type StreamReadCommand struct {
+	baseCommand
+}
+
+func (s *StreamReadCommand) ExecuteCommand() (string, error) {
+	args := s.args
+
+	if len(args) != 4 {
+		return "", fmt.Errorf("wrong number of arguments for XRANGE command")
+	}
+	key := args[2]
+	from := args[3]
+	val, ok := s.db.DbMap[key]
+	if !ok {
+		return "", fmt.Errorf("key not found")
+	}
+
+	valAsList, ok := val.Value.([]StreamValue)
+	if !ok {
+		return "", fmt.Errorf("key not a stream")
+	}
+	var result []any
+	var fromIndex int
+	for i, v := range valAsList {
+		if v.Id > from {
+			fromIndex = i
+			break
+		}
+	}
+
+	for j := fromIndex; j < len(valAsList); j++ {
+		result = append(result, valAsList[j])
+	}
+
+	resultWithKey := make([][]any, 1)
+
+	resultWithKey[0] = []any{key, result}
+
+	encodedArray, err := Encode(resultWithKey)
 	if err != nil {
 		return "", err
 	}

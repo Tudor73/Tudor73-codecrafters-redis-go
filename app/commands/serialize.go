@@ -54,6 +54,17 @@ func Encode(val any) (string, error) {
 		}
 		res += encodedArr
 		return res, nil
+	case [][]any:
+		res := TypeArray + fmt.Sprintf("%d", len(v)) + CRLF
+		for _, item := range v {
+			encoded, err := Encode(item)
+			if err != nil {
+				return "", err
+			}
+			res += encoded
+		}
+		return res, nil
+
 	case []any:
 		res := TypeArray + fmt.Sprintf("%d", len(v)) + CRLF
 		for _, item := range v {

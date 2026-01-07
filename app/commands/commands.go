@@ -81,6 +81,8 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 		return &StreamAddCommand{baseCommand: b}, nil
 	case "XRANGE":
 		return &StreamRangeCommand{baseCommand: b}, nil
+	case "XREAD":
+		return &StreamReadCommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
