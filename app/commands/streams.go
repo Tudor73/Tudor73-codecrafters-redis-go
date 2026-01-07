@@ -76,6 +76,9 @@ func (s *StreamRangeCommand) ExecuteCommand() (string, error) {
 	}
 	var result []any
 	var fromIndex int
+	if from == "-" {
+		from = valAsList[0].Id
+	}
 	for i, v := range valAsList {
 		if v.Id == from {
 			result = append(result, v)
@@ -86,6 +89,11 @@ func (s *StreamRangeCommand) ExecuteCommand() (string, error) {
 	if len(result) == 0 {
 		return "", fmt.Errorf("id not found")
 	}
+
+	if to == "+" {
+		to = valAsList[len(valAsList)-1].Id
+	}
+
 	for j := fromIndex + 1; j < len(valAsList); j++ {
 		result = append(result, valAsList[j])
 		if valAsList[j].Id == to {
