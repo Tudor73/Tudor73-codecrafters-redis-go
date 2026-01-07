@@ -30,48 +30,6 @@ const (
 	NullArray      = "*-1\r\n"
 )
 
-// func SerializeOutput(commandName string, output any, isError bool) []byte {
-// 	if commandName == "PING" || commandName == "TYPE" || commandName == "SET" {
-// 		return []byte(fmt.Sprintf("+%s\r\n", output))
-// 	}
-
-// 	if isError {
-// 		return []byte(fmt.Sprintf("-%s\r\n", output))
-// 	}
-
-// 	switch v := output.(type) {
-// 	case string:
-// 		return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(v), v))
-// 	case int, int64, int32:
-// 		return []byte(fmt.Sprintf(":%d\r\n", v))
-// 	case []string:
-// 		return serializeArrayOfStrings(v)
-
-// 	case nil:
-// 		return []byte("$-1\r\n")
-
-// 	default:
-// 		return nil
-// 	}
-// }
-
-// func serializeString(s string) string {
-// 	return fmt.Sprintf("$%d\r\n%s\r\n", len(s), s)
-// }
-
-// func serializeArrayOfStrings(v []string) []byte {
-// 	if len(v) == 1 && v[0] == "-1" {
-// 		return []byte(fmt.Sprintf("*%d\r\n", -1))
-// 	}
-// 	var result = fmt.Sprintf("*%d\r\n", len(v))
-// 	for _, elem := range v {
-// 		elemSerialized := serializeString(elem)
-// 		result = result + elemSerialized
-// 	}
-// 	return []byte(result)
-
-// }
-
 func Encode(val any) (string, error) {
 	switch v := val.(type) {
 	case string:
@@ -80,10 +38,26 @@ func Encode(val any) (string, error) {
 		return Number(v.(int)), nil
 	case []string:
 		return EncodeStringArray(v), nil
+	case StreamValue:
+		res := TypeArray + "2" + CRLF
+		res += BulkString(v.Id)
+
+		flatMap := make([]any, 0, len(v.Fields)*2)
+		for key, v := range v.Fields {
+			flatMap = append(flatMap, key)
+			flatMap = append(flatMap, v)
+		}
+
+		encodedArr, err := Encode(flatMap)
+		if err != nil {
+			return "", err
+		}
+		res += encodedArr
+		return res, nil
 	case []any:
 		res := TypeArray + fmt.Sprintf("%d", len(v)) + CRLF
 		for _, item := range v {
-			encoded, err := Encode(item) // Recursive call
+			encoded, err := Encode(item)
 			if err != nil {
 				return "", err
 			}
@@ -94,7 +68,6 @@ func Encode(val any) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported type: %T", v)
 	}
-
 }
 
 func EncodeError(error string) string {
@@ -124,4 +97,8 @@ func EncodeStringArray(arr []string) string {
 		result = result + elemSerialized
 	}
 	return result
+}
+
+func EncodeStream(stream []StreamValue) string {
+	return ""
 }

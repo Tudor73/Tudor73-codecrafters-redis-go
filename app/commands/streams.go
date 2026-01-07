@@ -37,9 +37,9 @@ func (s *StreamAddCommand) ExecuteCommand() (string, error) {
 			return "", err
 		}
 		s.db.DbMap[key] = &db.MapValue{
-			Value: []StreamValue{StreamValue{
+			Value: []StreamValue{{
 				Id:     id,
-				Fields: make(map[string]any),
+				Fields: mapValues,
 			}},
 		}
 	} else {
@@ -74,7 +74,7 @@ func (s *StreamRangeCommand) ExecuteCommand() (string, error) {
 	if !ok {
 		return "", fmt.Errorf("key not a stream")
 	}
-	var result []StreamValue
+	var result []any
 	var fromIndex int
 	for i, v := range valAsList {
 		if v.Id == from {
@@ -86,13 +86,18 @@ func (s *StreamRangeCommand) ExecuteCommand() (string, error) {
 	if len(result) == 0 {
 		return "", fmt.Errorf("id not found")
 	}
-	for j := fromIndex; j < len(valAsList); j++ {
+	for j := fromIndex + 1; j < len(valAsList); j++ {
 		result = append(result, valAsList[j])
 		if valAsList[j].Id == to {
 			break
 		}
 	}
-	return NullBulkString, nil
+
+	encodedArray, err := Encode(result)
+	if err != nil {
+		return "", err
+	}
+	return encodedArray, nil
 }
 
 func parseMapValues(args []string) map[string]any {
