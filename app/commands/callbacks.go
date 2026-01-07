@@ -26,14 +26,14 @@ type BLPOPCallback struct {
 	baseCommand
 }
 
-func (c *BLPOPCallback) ExecuteCommand() (any, error) {
+func (c *BLPOPCallback) ExecuteCommand() (string, error) {
 	args := c.args
 	key := args[1]
 
 	val, ok := c.db.DbMap[key]
 
 	if !ok {
-		return []string{}, nil
+		return NullArray, nil
 	}
 	valAsList, ok := val.Value.([]string)
 	if !ok {
@@ -45,7 +45,7 @@ func (c *BLPOPCallback) ExecuteCommand() (any, error) {
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
 		delete(c.db.ListChannels, key)
-		return "-1", nil
+		return NullArray, nil
 	}
 	if len(valAsList)-1 == 0 {
 		delete(c.db.DbMap, key)
@@ -55,5 +55,5 @@ func (c *BLPOPCallback) ExecuteCommand() (any, error) {
 	}
 
 	result := []string{key, first}
-	return result, nil
+	return EncodeStringArray(result), nil
 }

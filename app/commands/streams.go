@@ -9,16 +9,16 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/app/db"
 )
 
-type StreamCommand struct {
-	baseCommand
-}
-
 type StreamValue struct {
 	Id     string
 	Fields map[string]any
 }
 
-func (s *StreamCommand) ExecuteCommand() (any, error) {
+type StreamAddCommand struct {
+	baseCommand
+}
+
+func (s *StreamAddCommand) ExecuteCommand() (string, error) {
 	args := s.args
 
 	if len(args)%2 != 1 || len(args) < 3 {
@@ -49,8 +49,50 @@ func (s *StreamCommand) ExecuteCommand() (any, error) {
 		}
 		val.Value = append(val.Value.([]StreamValue), StreamValue{Id: id, Fields: mapValues})
 	}
-	return id, nil
+	return BulkString(id), nil
 
+}
+
+type StreamRangeCommand struct {
+	baseCommand
+}
+
+func (s *StreamRangeCommand) ExecuteCommand() (string, error) {
+	args := s.args
+
+	if len(args) != 4 {
+		return "", fmt.Errorf("wrong number of arguments for XRANGE command")
+	}
+	key := args[1]
+	from, to := args[2], args[3]
+	val, ok := s.db.DbMap[key]
+	if !ok {
+		return "", fmt.Errorf("key not found")
+	}
+
+	valAsList, ok := val.Value.([]StreamValue)
+	if !ok {
+		return "", fmt.Errorf("key not a stream")
+	}
+	var result []StreamValue
+	var fromIndex int
+	for i, v := range valAsList {
+		if v.Id == from {
+			result = append(result, v)
+			fromIndex = i
+			break
+		}
+	}
+	if len(result) == 0 {
+		return "", fmt.Errorf("id not found")
+	}
+	for j := fromIndex; j < len(valAsList); j++ {
+		result = append(result, valAsList[j])
+		if valAsList[j].Id == to {
+			break
+		}
+	}
+	return NullBulkString, nil
 }
 
 func parseMapValues(args []string) map[string]any {

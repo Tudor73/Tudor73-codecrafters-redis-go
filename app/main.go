@@ -30,6 +30,7 @@ var SupportedCommands = map[string]bool{
 	"BLPOP":  true,
 	"TYPE":   true,
 	"XADD":   true,
+	"XRANGE": true,
 }
 
 func main() {
@@ -77,8 +78,8 @@ func handleConnection(conn net.Conn, db *db.Db, queue *eventloop.EventLoop) {
 
 		command, err := RunCommand(value, db, queue)
 		if err != nil {
-			serializedError := commands.SerializeOutput("", err, true)
-			conn.Write(serializedError)
+			serializedError := commands.EncodeError(err.Error())
+			conn.Write([]byte(serializedError))
 			continue
 		}
 		resultChan := command.GetResponseChan()

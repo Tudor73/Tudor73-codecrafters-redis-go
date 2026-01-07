@@ -1,8 +1,6 @@
 package eventloop
 
 import (
-	"fmt"
-
 	"github.com/codecrafters-io/redis-starter-go/app/commands"
 )
 
@@ -28,21 +26,20 @@ func (e *EventLoop) Run() {
 					output, err := task.ExecuteCommand()
 					resultChan := task.GetResponseChan()
 					if err != nil {
-						serializedError := commands.SerializeOutput(task.GetName(), err, true)
-						resultChan <- serializedError
+						serializedError := commands.EncodeError(err.Error())
+						resultChan <- []byte(serializedError)
 						return
 					}
-					if output == nil && task.Callback() != nil {
+					if output == "" && task.Callback() != nil {
 						e.Callbacks <- task.Callback()
 						return
 					}
-					outputSerialized := commands.SerializeOutput(task.GetName(), output, false)
-					if outputSerialized == nil {
-						serializedError := commands.SerializeOutput("", fmt.Errorf("unsupported protocol type"), true)
-						resultChan <- serializedError
+					if output == "" {
+						serializedError := commands.EncodeError("Unsupported protocol")
+						resultChan <- []byte(serializedError)
 						return
 					}
-					resultChan <- outputSerialized
+					resultChan <- []byte(output)
 
 				}()
 			} else {
@@ -64,15 +61,14 @@ func handleTask(task commands.Command) {
 	output, err := task.ExecuteCommand()
 	resultChan := task.GetResponseChan()
 	if err != nil {
-		serializedError := commands.SerializeOutput(task.GetName(), err, true)
-		resultChan <- serializedError
+		serializedError := commands.EncodeError(err.Error())
+		resultChan <- []byte(serializedError)
 		return
 	}
-	outputSerialized := commands.SerializeOutput(task.GetName(), output, false)
-	if outputSerialized == nil {
-		serializedError := commands.SerializeOutput("", fmt.Errorf("unsupported protocol type"), true)
-		resultChan <- serializedError
+	if output == "" {
+		serializedError := commands.EncodeError("Unsupported protocol")
+		resultChan <- []byte(serializedError)
 		return
 	}
-	resultChan <- outputSerialized
+	resultChan <- []byte(output)
 }

@@ -38,7 +38,7 @@ func (c *baseCommand) GetName() string {
 }
 
 type Command interface {
-	ExecuteCommand() (any, error)
+	ExecuteCommand() (string, error)
 	IsBlocking() bool
 	GetResponseChan() chan []byte
 	Callback() Command
@@ -78,7 +78,9 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 	case "TYPE":
 		return &TypeCommand{baseCommand: b}, nil
 	case "XADD":
-		return &StreamCommand{baseCommand: b}, nil
+		return &StreamAddCommand{baseCommand: b}, nil
+	case "XRANGE":
+		return &StreamRangeCommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
@@ -88,31 +90,31 @@ type PingCommand struct {
 	baseCommand
 }
 
-func (c *PingCommand) ExecuteCommand() (any, error) {
+func (c *PingCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) != 1 {
 		return "", fmt.Errorf("wrong number of arguments for 'PING' command")
 	}
-	return "PONG", nil
+	return SimpleString("PONG"), nil
 }
 
 type EchoCommand struct {
 	baseCommand
 }
 
-func (c *EchoCommand) ExecuteCommand() (any, error) {
+func (c *EchoCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'ECHO' command")
 	}
-	return args[1], nil
+	return BulkString(args[1]), nil
 }
 
 type GetCommand struct {
 	baseCommand
 }
 
-func (c *GetCommand) ExecuteCommand() (any, error) {
+func (c *GetCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
@@ -121,16 +123,20 @@ func (c *GetCommand) ExecuteCommand() (any, error) {
 
 	val, ok := c.db.GetValue(key)
 	if !ok {
-		return nil, nil
+		return NullBulkString, nil
 	}
-	return val, nil
+	encoded, err := Encode(val)
+	if err != nil {
+		return "", err
+	}
+	return encoded, nil
 }
 
 type SetCommand struct {
 	baseCommand
 }
 
-func (c *SetCommand) ExecuteCommand() (any, error) {
+func (c *SetCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) < 3 || len(args) == 4 {
 		return "", fmt.Errorf("wrong number of arguments for 'SET' command")
@@ -151,14 +157,14 @@ func (c *SetCommand) ExecuteCommand() (any, error) {
 
 	c.db.DbMap[key] = &dbVal
 
-	return "OK", nil
+	return SimpleString("OK"), nil
 }
 
 type RPUSHCommand struct {
 	baseCommand
 }
 
-func (c *RPUSHCommand) ExecuteCommand() (any, error) {
+func (c *RPUSHCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) < 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'RPUSH' command")
@@ -185,21 +191,21 @@ func (c *RPUSHCommand) ExecuteCommand() (any, error) {
 	listSize := len(val.Value.([]string))
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
-		return "-1", nil
+		return NullBulkString, nil
 	}
 	select {
 	case c.db.ListChannels[key] <- true:
 	default:
 	}
 
-	return listSize, nil
+	return Number(listSize), nil
 }
 
 type LPUSHCommand struct {
 	baseCommand
 }
 
-func (c *LPUSHCommand) ExecuteCommand() (any, error) {
+func (c *LPUSHCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) < 3 {
 		return "", fmt.Errorf("wrong number of arguments for 'LPUSH' command")
@@ -226,20 +232,20 @@ func (c *LPUSHCommand) ExecuteCommand() (any, error) {
 	listSize := len(val.Value.([]string))
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
-		return "-1", nil
+		return NullBulkString, nil
 	}
 	select {
 	case c.db.ListChannels[key] <- true:
 	default:
 	}
-	return listSize, nil
+	return Number(listSize), nil
 }
 
 type LLENCommand struct {
 	baseCommand
 }
 
-func (c *LLENCommand) ExecuteCommand() (any, error) {
+func (c *LLENCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'LLEN' command")
@@ -250,7 +256,7 @@ func (c *LLENCommand) ExecuteCommand() (any, error) {
 	val, ok := c.db.DbMap[key]
 
 	if !ok {
-		return 0, nil
+		return Number(0), nil
 	}
 	valAsList, ok := val.Value.([]string)
 	if !ok {
@@ -260,17 +266,17 @@ func (c *LLENCommand) ExecuteCommand() (any, error) {
 	listSize := len(valAsList)
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
-		return "-1", nil
+		return NullBulkString, nil
 	}
 
-	return listSize, nil
+	return Number(listSize), nil
 }
 
 type LPOPCommand struct {
 	baseCommand
 }
 
-func (c *LPOPCommand) ExecuteCommand() (any, error) {
+func (c *LPOPCommand) ExecuteCommand() (string, error) {
 	fmt.Println("executing  LPOP")
 	args := c.args
 	if len(args) > 3 {
@@ -290,7 +296,7 @@ func (c *LPOPCommand) ExecuteCommand() (any, error) {
 	val, ok := c.db.DbMap[key]
 
 	if !ok {
-		return 0, nil
+		return Number(0), nil
 	}
 	valAsList, ok := val.Value.([]string)
 	if !ok {
@@ -307,21 +313,25 @@ func (c *LPOPCommand) ExecuteCommand() (any, error) {
 	if val.HasExpiryDate && time.Now().After(val.ExpireAt) {
 		delete(c.db.DbMap, key)
 		delete(c.db.ListChannels, key)
-		return "-1", nil
+		return NullBulkString, nil
 	}
 	if len(valAsList)-numberOfElements == 0 {
 		delete(c.db.DbMap, key)
 		delete(c.db.ListChannels, key)
 	}
 
-	return first, nil
+	encoded, err := Encode(first)
+	if err != nil {
+		return "", err
+	}
+	return encoded, nil
 }
 
 type BLPOPCommand struct {
 	baseCommand
 }
 
-func (c *BLPOPCommand) ExecuteCommand() (any, error) {
+func (c *BLPOPCommand) ExecuteCommand() (string, error) {
 	fmt.Println("executing  BLPOP")
 	args := c.args
 	if len(args) != 3 {
@@ -351,7 +361,7 @@ func (c *BLPOPCommand) ExecuteCommand() (any, error) {
 			default:
 				if time.Since(startTime) > time.Duration(timeout*float64(time.Second)) {
 					blocking = false
-					return []string{"-1"}, nil
+					return NullArray, nil
 				}
 			}
 		}
@@ -359,14 +369,14 @@ func (c *BLPOPCommand) ExecuteCommand() (any, error) {
 	c.callback, _ = NewCallback("BLPOP", c.db, []string{"LPOP", key})
 	c.callback.SetResponseChan(c.Response)
 
-	return nil, nil
+	return "", nil
 }
 
 type LRANGECommand struct {
 	baseCommand
 }
 
-func (c *LRANGECommand) ExecuteCommand() (any, error) {
+func (c *LRANGECommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) != 4 {
 		return "", fmt.Errorf("wrong number of arguments for 'LRANGE' command")
@@ -375,7 +385,7 @@ func (c *LRANGECommand) ExecuteCommand() (any, error) {
 
 	val, ok := c.db.GetValue(key)
 	if !ok {
-		return []string{}, nil
+		return EncodeStringArray([]string{}), nil
 	}
 
 	startIndex, err := strconv.Atoi(args[2])
@@ -405,22 +415,22 @@ func (c *LRANGECommand) ExecuteCommand() (any, error) {
 		stopIndex = 0
 	}
 	if startIndex >= len(valAsList) {
-		return []string{}, nil
+		return EncodeStringArray([]string{}), nil
 	}
 	if stopIndex >= len(valAsList) {
 		stopIndex = len(valAsList) - 1
 	}
 	if startIndex > stopIndex {
-		return []string{}, nil
+		return EncodeStringArray([]string{}), nil
 	}
-	return valAsList[startIndex : stopIndex+1], nil
+	return EncodeStringArray(valAsList[startIndex : stopIndex+1]), nil
 }
 
 type TypeCommand struct {
 	baseCommand
 }
 
-func (c *TypeCommand) ExecuteCommand() (any, error) {
+func (c *TypeCommand) ExecuteCommand() (string, error) {
 	args := c.args
 	if len(args) != 2 {
 		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
@@ -429,19 +439,19 @@ func (c *TypeCommand) ExecuteCommand() (any, error) {
 
 	val, ok := c.db.GetValue(key)
 	if !ok {
-		return "none", nil
+		return SimpleString("none"), nil
 	}
 
 	valType := reflect.TypeOf(val)
 	switch valType.Kind() {
 	case reflect.String:
-		return "string", nil
+		return SimpleString("string"), nil
 	case reflect.Slice:
 		_, check := val.([]StreamValue)
 		if check {
-			return "stream", nil
+			return SimpleString("stream"), nil
 		}
-		return "list", nil
+		return SimpleString("list"), nil
 	default:
 		return "", fmt.Errorf("unsupported type %s", valType.Kind().String())
 	}
