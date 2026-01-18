@@ -42,12 +42,19 @@ func (s *StreamAddCommand) ExecuteCommand() (string, error) {
 				Fields: mapValues,
 			}},
 		}
+		if _, ok := s.db.ListChannels[key]; !ok {
+			s.db.ListChannels[key] = make(chan any, 1)
+		}
 	} else {
 		id, err = validateId(id, &val.Value.([]StreamValue)[len(val.Value.([]StreamValue))-1])
 		if err != nil {
 			return "", err
 		}
 		val.Value = append(val.Value.([]StreamValue), StreamValue{Id: id, Fields: mapValues})
+	}
+	select {
+	case s.db.ListChannels[key] <- id:
+	default:
 	}
 	return BulkString(id), nil
 
@@ -108,9 +115,62 @@ type StreamReadCommand struct {
 }
 
 func (s *StreamReadCommand) ExecuteCommand() (string, error) {
-	keys, ids, err := parseXReadArgs(s.args)
-	if err != nil {
-		return "", err
+	streamsIdx := -1
+	var isBlocking = false
+	var duration float64
+	var err error
+	for i, arg := range s.args {
+		if strings.ToUpper(arg) == "STREAMS" {
+			streamsIdx = i
+			break
+		}
+		if strings.ToUpper(arg) == "BLOCK" {
+			isBlocking = true
+			duration, err = strconv.ParseFloat(s.args[i+1], 32)
+			if err != nil {
+				return "", fmt.Errorf("ERR timeout duration wrong format")
+			}
+		}
+	}
+	if streamsIdx == -1 {
+		return "", fmt.Errorf("ERR syntax error, STREAMS argument missing")
+	}
+
+	remainingArgs := s.args[streamsIdx+1:]
+	if len(remainingArgs)%2 != 0 {
+		return "", fmt.Errorf("ERR Unbalanced XREAD list of streams: for each stream key an ID or '$' must be specified")
+	}
+
+	numStreams := len(remainingArgs) / 2
+	keys := remainingArgs[:numStreams]
+	ids := remainingArgs[numStreams:]
+
+	if isBlocking {
+		key := keys[0]
+		id := ids[0]
+		if _, ok := s.db.ListChannels[key]; !ok {
+			s.db.ListChannels[key] = make(chan any, 1)
+		}
+		startTime := time.Now()
+		for isBlocking {
+			select {
+			case newId := <-s.db.ListChannels[key]:
+				newIdAsString, _ := newId.(string)
+				if newIdAsString > id {
+					isBlocking = false
+				}
+			default:
+				if time.Since(startTime) > time.Duration(duration*float64(time.Millisecond)) {
+					isBlocking = false
+					return NullArray, nil
+				}
+			}
+		}
+		s.callback, _ = NewCallback("XREAD", s.db, []string{"XREAD", key, id})
+		s.callback.SetResponseChan(s.Response)
+
+		return "", nil
+
 	}
 	var fullResult []any
 	for i, key := range keys {
@@ -145,28 +205,6 @@ func (s *StreamReadCommand) ExecuteCommand() (string, error) {
 		return "", err
 	}
 	return encodedArray, nil
-}
-
-func parseXReadArgs(args []string) (keys []string, ids []string, err error) {
-	for i := 2; i < len(args); i++ {
-		if checkId(args[i]) {
-			ids = append(ids, args[i])
-		} else {
-			keys = append(keys, args[i])
-		}
-	}
-	if len(keys) != len(ids) {
-		return nil, nil, fmt.Errorf("invalid arguments")
-	}
-	return
-}
-
-func checkId(value string) bool {
-	values := strings.Split(value, "-")
-	if len(values) != 2 {
-		return false
-	}
-	return true
 }
 
 func parseMapValues(args []string) map[string]any {

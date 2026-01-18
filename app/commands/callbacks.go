@@ -17,6 +17,8 @@ func NewCallback(name string, db *db.Db, args []string) (Command, error) {
 	switch strings.ToUpper(name) {
 	case "BLPOP":
 		return &BLPOPCallback{baseCommand: b}, nil
+	case "XREAD":
+		return &XReadCallback{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
@@ -56,4 +58,47 @@ func (c *BLPOPCallback) ExecuteCommand() (string, error) {
 
 	result := []string{key, first}
 	return EncodeStringArray(result), nil
+}
+
+type XReadCallback struct {
+	baseCommand
+}
+
+func (c *XReadCallback) ExecuteCommand() (string, error) {
+	args := c.args
+	key := args[1]
+
+	val, ok := c.db.DbMap[key]
+
+	if !ok {
+		return NullArray, nil
+	}
+
+	var fullResult []any
+	valAsList, ok := val.Value.([]StreamValue)
+	if !ok {
+		return "", fmt.Errorf("key not a stream")
+	}
+	from := args[2]
+	var result []any
+	var fromIndex = len(valAsList)
+	for i, v := range valAsList {
+		if v.Id > from {
+			fromIndex = i
+			break
+		}
+	}
+
+	for j := fromIndex; j < len(valAsList); j++ {
+		result = append(result, valAsList[j])
+	}
+
+	resultWithKey := []any{key, result}
+	fullResult = append(fullResult, resultWithKey)
+
+	encodedArray, err := Encode(fullResult)
+	if err != nil {
+		return "", err
+	}
+	return encodedArray, nil
 }

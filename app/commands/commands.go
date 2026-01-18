@@ -82,6 +82,7 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 	case "XRANGE":
 		return &StreamRangeCommand{baseCommand: b}, nil
 	case "XREAD":
+		b.isBlocking = true
 		return &StreamReadCommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
@@ -182,7 +183,7 @@ func (c *RPUSHCommand) ExecuteCommand() (string, error) {
 			SetAt: time.Now(),
 		}
 		if _, ok := c.db.ListChannels[key]; !ok {
-			c.db.ListChannels[key] = make(chan bool, 1)
+			c.db.ListChannels[key] = make(chan any, 1)
 		}
 	}
 	val := c.db.DbMap[key]
@@ -223,7 +224,7 @@ func (c *LPUSHCommand) ExecuteCommand() (string, error) {
 			SetAt: time.Now(),
 		}
 		if _, ok := c.db.ListChannels[key]; !ok {
-			c.db.ListChannels[key] = make(chan bool, 1)
+			c.db.ListChannels[key] = make(chan any, 1)
 		}
 	}
 	val := c.db.DbMap[key]
@@ -349,7 +350,7 @@ func (c *BLPOPCommand) ExecuteCommand() (string, error) {
 
 	// TO DO - refactor this a bit to use the GetValue method
 	if _, ok := c.db.ListChannels[key]; !ok {
-		c.db.ListChannels[key] = make(chan bool, 1)
+		c.db.ListChannels[key] = make(chan any, 1)
 	}
 	if timeout == 0 {
 		<-c.db.ListChannels[key]
