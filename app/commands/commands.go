@@ -476,7 +476,7 @@ func (c *INCRCommand) ExecuteCommand() (string, error) {
 
 	val, ok := c.db.GetValue(key)
 	if !ok {
-		c.db.SetValue(key, 1)
+		c.db.SetValue(key, "1")
 		encoded, _ := Encode(1)
 		return encoded, nil
 	}
@@ -488,7 +488,7 @@ func (c *INCRCommand) ExecuteCommand() (string, error) {
 		return "", fmt.Errorf("ERR value is not an integer or out of range")
 	}
 	valAsInt++
-	c.db.SetValue(key, valAsInt)
+	c.db.SetValue(key, fmt.Sprintf("%d", valAsInt))
 
 	encoded, err := Encode(valAsInt)
 	if err != nil {
