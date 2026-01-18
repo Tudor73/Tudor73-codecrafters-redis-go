@@ -108,44 +108,65 @@ type StreamReadCommand struct {
 }
 
 func (s *StreamReadCommand) ExecuteCommand() (string, error) {
-	args := s.args
-
-	if len(args) != 4 {
-		return "", fmt.Errorf("wrong number of arguments for XRANGE command")
+	keys, ids, err := parseXReadArgs(s.args)
+	if err != nil {
+		return "", err
 	}
-	key := args[2]
-	from := args[3]
-	val, ok := s.db.DbMap[key]
-	if !ok {
-		return "", fmt.Errorf("key not found")
-	}
-
-	valAsList, ok := val.Value.([]StreamValue)
-	if !ok {
-		return "", fmt.Errorf("key not a stream")
-	}
-	var result []any
-	var fromIndex int
-	for i, v := range valAsList {
-		if v.Id > from {
-			fromIndex = i
-			break
+	var fullResult []any
+	for i, key := range keys {
+		val, ok := s.db.DbMap[key]
+		if !ok {
+			return "", fmt.Errorf("key not found")
 		}
+
+		valAsList, ok := val.Value.([]StreamValue)
+		if !ok {
+			return "", fmt.Errorf("key not a stream")
+		}
+		from := ids[i]
+		var result []any
+		var fromIndex int
+		for i, v := range valAsList {
+			if v.Id > from {
+				fromIndex = i
+				break
+			}
+		}
+
+		for j := fromIndex; j < len(valAsList); j++ {
+			result = append(result, valAsList[j])
+		}
+
+		resultWithKey := []any{key, result}
+		fullResult = append(fullResult, resultWithKey)
 	}
-
-	for j := fromIndex; j < len(valAsList); j++ {
-		result = append(result, valAsList[j])
-	}
-
-	resultWithKey := make([][]any, 1)
-
-	resultWithKey[0] = []any{key, result}
-
-	encodedArray, err := Encode(resultWithKey)
+	encodedArray, err := Encode(fullResult)
 	if err != nil {
 		return "", err
 	}
 	return encodedArray, nil
+}
+
+func parseXReadArgs(args []string) (keys []string, ids []string, err error) {
+	for i := 2; i < len(args); i++ {
+		if checkId(args[i]) {
+			ids = append(ids, args[i])
+		} else {
+			keys = append(keys, args[i])
+		}
+	}
+	if len(keys) != len(ids) {
+		return nil, nil, fmt.Errorf("invalid arguments")
+	}
+	return
+}
+
+func checkId(value string) bool {
+	values := strings.Split(value, "-")
+	if len(values) != 2 {
+		return false
+	}
+	return true
 }
 
 func parseMapValues(args []string) map[string]any {
