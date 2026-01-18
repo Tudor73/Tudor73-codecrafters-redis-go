@@ -160,7 +160,7 @@ func (s *StreamReadCommand) ExecuteCommand() (string, error) {
 					isBlocking = false
 				}
 			default:
-				if time.Since(startTime) > time.Duration(duration*float64(time.Millisecond)) {
+				if duration != 0 && time.Since(startTime) > time.Duration(duration*float64(time.Millisecond)) {
 					isBlocking = false
 					return NullArray, nil
 				}
