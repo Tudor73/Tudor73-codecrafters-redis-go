@@ -88,6 +88,8 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 		return &INCRCommand{baseCommand: b}, nil
 	case "MULTI":
 		return &MULTICommand{baseCommand: b}, nil
+	case "EXEC":
+		return &EXECCommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
