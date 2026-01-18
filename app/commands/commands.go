@@ -84,6 +84,8 @@ func NewCommand(name string, db *db.Db, args []string) (Command, error) {
 	case "XREAD":
 		b.isBlocking = true
 		return &StreamReadCommand{baseCommand: b}, nil
+	case "INCR":
+		return &INCRCommand{baseCommand: b}, nil
 	default:
 		return nil, fmt.Errorf("unknown command '%s'", name)
 	}
@@ -459,4 +461,38 @@ func (c *TypeCommand) ExecuteCommand() (string, error) {
 		return "", fmt.Errorf("unsupported type %s", valType.Kind().String())
 	}
 
+}
+
+type INCRCommand struct {
+	baseCommand
+}
+
+func (c *INCRCommand) ExecuteCommand() (string, error) {
+	args := c.args
+	if len(args) != 2 {
+		return "", fmt.Errorf("wrong number of arguments for 'GET' command")
+	}
+	key := args[1]
+
+	val, ok := c.db.GetValue(key)
+	if !ok {
+		c.db.SetValue(key, 1)
+		encoded, _ := Encode(1)
+		return encoded, nil
+	}
+
+	valAsString, _ := val.(string)
+
+	valAsInt, err := strconv.Atoi(valAsString)
+	if err != nil {
+		return "", fmt.Errorf("ERR value is not an integer or out of range")
+	}
+	valAsInt++
+	c.db.SetValue(key, valAsInt)
+
+	encoded, err := Encode(valAsInt)
+	if err != nil {
+		return "", err
+	}
+	return encoded, nil
 }

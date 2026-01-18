@@ -32,6 +32,7 @@ var SupportedCommands = map[string]bool{
 	"XADD":   true,
 	"XRANGE": true,
 	"XREAD":  true,
+	"INCR":   true,
 }
 
 func main() {
