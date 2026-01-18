@@ -156,6 +156,9 @@ func (s *StreamReadCommand) ExecuteCommand() (string, error) {
 			select {
 			case newId := <-s.db.ListChannels[key]:
 				newIdAsString, _ := newId.(string)
+				if id == "$" {
+					id = newIdAsString
+				}
 				if newIdAsString > id {
 					isBlocking = false
 				}
